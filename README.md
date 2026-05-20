@@ -541,11 +541,11 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 #### DBSC Key generation header
 
-The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following parameters:
+The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following properties:
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_domain`, which is the domain of the RP performing the sign in operation. The User Agent **must** limit this key usage to the domain indicated by this parameter.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property called `target_domain`, which is the domain of the RP performing the sign in operation. The User Agent **must** limit this key usage to the domain indicated by this property.
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `challenge`, which is a replay-resistant challenge used to prove the private key possession.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
 Example:
 
@@ -557,7 +557,7 @@ Secure-Session-GenerateKey: (ES256 RS256); target_domain="relyingparty.com"; cha
 
 The binding statement validation is done as follows:
 
-* The provided challenge isnt expired nor reutilized.
+* The provided challenge isn't expired nor reutilized.
 * The provided attestation statement is valid when:
 	* The attestation mode is `SECURE_ENCLAVE` and the recreated signature of challenge and key digest concatenation is valid, or
 	* The attestation mode is `TPM`, and the TPM2B\_ATTEST object holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214).
