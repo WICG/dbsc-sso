@@ -296,7 +296,7 @@ The attestation statement format is defined as follows:
 ```
 
 *  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`.
-*  **stmt**: The attestation statement payload encoded in Base64URL. If `fmt` is set to `TPM`, the format of the statement is the [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
+*  **stmt**: The attestation statement payload encoded in Base64URL. If `fmt` is set to `TPM`, the format of the statement is the [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
 
 ```
 // pseudo-code
@@ -337,7 +337,7 @@ The binding statement is defined as follows:
 
 The attestation statement `stmt` can have two different formats depending on what is specified in the `fmt` field.
 
-*  **TPM**: The [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) structure defined in the TPM 2.0 specs.
+*  **TPM**: The [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) structure defined in the TPM 2.0 specs.
 
 *  **SECURE\_ENCLAVE**: The attestation statement is the concatenation of the challenge sent by the server and the signing key digest signed by $IdP_\text{ak-priv}$.
 
@@ -579,7 +579,7 @@ The binding statement validation is done as follows:
 * The provided challenge isn't expired nor reutilized.
 * The provided attestation statement is valid when:
 	* The attestation mode is `SECURE_ENCLAVE` and the recreated signature of challenge and key digest concatenation is valid, or
-	* The attestation mode is `TPM`, and the TPM2B\_ATTEST object holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214).
+	* The attestation mode is `TPM`, and the TPMS\_ATTEST object holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214).
 
 #### SAML Assertions and OIDC tokens
 
