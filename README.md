@@ -301,7 +301,8 @@ The attestation statement format is defined as follows:
 ```
 // pseudo-code
 c := "dm9pY2VvYmplY3...bmFja3RvdWNoaGVscGY=" // challenge used in the DBSC session registration
-d := hash(signing_key_spki, "SHA-256")
+hash_alg := get_hash_alg_for_crypto_alg(chosen_alg)
+d := hash(signing_key_spki, hash_alg)
 raw_stmt = concat(c, d)
 stmt := base64url_enc(raw_stmt)
 ```
@@ -330,7 +331,7 @@ The binding statement is defined as follows:
 	"aik": "[Base64URL encoded JWK of IdP_pak]",
 	"fmt": "[TPM|SECURE_ENCLAVE]",
 	"challenge": "[Base64URL encoded challenge]",
-	"sub_key_digest": "SHA 256 digest of RP public key"
+	"sub_key_digest": "Digest of RP public key using the hash algorithm associated with the chosen cryptographic algorithm"
 }
 ```
 
@@ -345,7 +346,8 @@ In other words, it can be represented by:
 ```
 // pseudo-code
 c := "aHVzYmFuZHJpZG...cmxkYmFzZWJhbGxhcnI=" // replay-resistant challenge
-t := hash(signing_key_spki, "SHA-256")
+hash_alg := get_hash_alg_for_crypto_alg(chosen_alg)
+t := hash(signing_key_spki, hash_alg)
 raw_stmt := sign(concat(c, t), IdP_ak-priv)
 encoded_stmt := base64url_enc(raw_stmt)
 ```
@@ -539,16 +541,16 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 #### DBSC Key generation header
 
-The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. This header contains the following properties:
+The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following properties:
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property called `target_domain`, which is the domain of the RP performing the sign in operation. The User Agent **must** limit this key usage to the domain indicated by this property.
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is replay-resistant challenge used to prove the private key possession.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
 Example:
 
-```
-Secure-Session-GenerateKey: target_domain=relyingparty.com; challenge=...
+```http
+Secure-Session-GenerateKey: (ES256 RS256); target_domain="relyingparty.com"; challenge="..."
 ```
 
 #### Binding statement validation
