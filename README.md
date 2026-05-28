@@ -201,11 +201,11 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	This permits the SSO authentication process to continue normally.
 
-* **Authentication tokens:** Upon a valid binding statement presented, the IdP issues its regular authentication token (SAML assertion or OIDC Tokens) to the RP, which now includes the signing key digest that should be trusted by the RP. If the authentication token is legit (signed by the IdP), the RP can trust the public key that matches the specified digest.
+* **Authentication tokens:** Upon a valid binding statement presented, the IdP issues its regular authentication token (SAML assertion or OIDC Tokens) to the RP, which now includes the signing key digest (or certificate fingerprint) that should be trusted by the RP. If the authentication token is legit (signed by the IdP), the RP can trust the public key (or client certificate) that matches the specified digest.
 
 	On OIDC flows, the key digest is included in the OIDC token, which is sent via backchannel communication between the RP and the IdP.
 
-* **RP session initialization:** RPs can issue authentication cookies bound to the key trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest along with the `provider_key_alg` to specify the algorithm used in the digest computation. The `provider_url` must also be provided to indicate the IdP that attested the underlying key.
+* **RP session initialization:** RPs can issue authentication cookies bound to the key (or certificate) trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest (or certificate fingerprint) along with the `provider_key_alg` to specify the algorithm used in the digest (or fingerprint) computation. The `provider_url` must also be provided to indicate the IdP that attested the underlying key (or certificate).
 
 	RPs should not issue unbound long-lived cookies, otherwise the session would not be protected.
 
@@ -213,7 +213,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	As authentication requests can be spoofed, malware can fake support absence to induce the Identity Provider not to send a trusted key digest back to the RP, which would lead the RP not to start a bound session, or fallback to standard DBSC.
 
-	To circumvent this, the IdP should also hint the RP back in its **signed** response (in the SAML Assertion or OIDC Token), so that if the RP supports DBSC and does not get a trusted key digest in the assertion, it's a strong signal that the authentication request has been tampered with.
+	To circumvent this, the IdP should also hint the RP back in its **signed** response (in the SAML Assertion or OIDC Token), so that if the RP supports DBSC and does not get a trusted key digest (or certificate fingerprint) in the assertion, it's a strong signal that the authentication request has been tampered with.
 
 	In Enterprise scenarios, Identity Providers can hold additional configurations in which Admins can state that a particular Relying Party supports DBSC-SSO, or even further; that the IdP should only issue an assertion if the device succesfully generates a binding statement.
 
@@ -437,9 +437,13 @@ Besides the [standard DBSC implementation](https://developer.chrome.com/docs/web
 
 #### SAML Assertion and OIDC Tokens
 
-The Identity Provider shares the trusted public key's digest and the algorithm utilized (SHA-256|384|512) with the Relying Party via either SAML Assertion or OIDC Tokens, depending on which SSO protocol the RP is using.
+The Identity Provider shares the trusted public key's digest (for TPM-bound sessions) or the certificate fingerprint (for mTLS-bound sessions) and the algorithm utilized (SHA-256|384|512) with the Relying Party via either SAML Assertion or OIDC Tokens, depending on which SSO protocol the RP is using.
 
-In case of SAML, the trusted key's digest and `digest_alg` are returned in a `saml:Advice` tag, as in the following example:
+While DBSC primarily focuses on TPM-bound keys, it also supports certificate-based binding (e.g., via mTLS) to accommodate platforms or scenarios where hardware-backed keys might not be available or as an additional layer of security. In such cases, the IdP can share the client certificate's fingerprint instead of, or in addition to, the public key digest.
+
+Note: Sharing certificate fingerprints can pose privacy concerns as they may serve as a persistent identifier across different Relying Parties. While this is generally acceptable in enterprise scenarios where device tracking and security auditing are required, it should be carefully considered for consumer use cases.
+
+In case of SAML, the trusted key's digest and `digest_alg` (or the certificate fingerprint and its algorithm) are returned in a `saml:Advice` tag using either `<dbsc:TrustedKey>` or `<dbsc:TrustedCertificate>`, as in the following example:
 
 ```xml
 <samlp:Response>
@@ -448,12 +452,15 @@ In case of SAML, the trusted key's digest and `digest_alg` are returned in a `sa
 			<dbsc:TrustedKey xmlns:dbsc="https://www.w3.org/NS/DBSC"
 				digest="nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0="
 				digest_alg="SHA-256"/>
+			<dbsc:TrustedCertificate xmlns:dbsc="https://www.w3.org/NS/DBSC"
+				fingerprint="f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b"
+				fingerprint_alg="SHA-256"/>
 		</saml:Advice>
 	</saml:Assertion>
 </samlp:Response>
 ```
 
-The XML Schema Definition for the `<dbsc:TrustedKey>` element is defined as follows:
+The XML Schema Definition for these elements is defined as follows:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -475,17 +482,29 @@ The XML Schema Definition for the `<dbsc:TrustedKey>` element is defined as foll
 			</xs:attribute>
 		</xs:complexType>
 	</xs:element>
+	<xs:element name="TrustedCertificate">
+		<xs:complexType>
+			<xs:attribute name="fingerprint" type="xs:hexBinary|xs:string" use="required">
+			<!-- documentation omitted for brevity -->
+			</xs:attribute>
+			<xs:attribute name="fingerprint_alg" type="dbsc:DigestAlgorithmType" use="required">
+			<!-- documentation omitted for brevity -->
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
 </xs:schema>
 ```
 
-The same attributes are present in the OIDC Token as a custom claim, as follows:
+The same attributes are present in the OIDC Token as custom claims, as follows:
 
 ```json
 {
 	"iss": "http://idp.com",
 	...
 	"dbsc_key_digest": "nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0=",
-	"dbsc_key_alg": "SHA-256|384|512"
+	"dbsc_key_alg": "SHA-256|384|512",
+	"dbsc_cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
+	"dbsc_cert_fingerprint_alg": "SHA-256|384|512"
 }
 ```
 
@@ -499,7 +518,7 @@ As the DBSC session registration is done asynchronously, the RP needs to keep tr
 
 In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's domain during its creation.
 
-Once the User Agent sends the RP's public key and the signed challenge, the RP computes the received key's digest using the algorithm indicated in the authentication token sent by the IdP, and compares it with the trusted key digest also sent by the IdP. If both match, and the signature verification is successful, the RP can establish a bound session with the underlying browser.
+Once the User Agent sends the RP's public key (or presents its certificate) and the signed challenge, the RP computes the received identifier (key's digest or certificate fingerprint) using the algorithm indicated in the authentication token sent by the IdP, and compares it with the trusted identifier also sent by the IdP. If both match, and the signature verification is successful (where applicable), the RP can establish a bound session with the underlying browser.
 
 ### Identity Provider
 
@@ -562,7 +581,7 @@ The binding statement validation is done as follows:
 
 #### SAML Assertions and OIDC tokens
 
-The SAML assertion or OIDC token returned to the User Agent after a successful login must contain both the trusted key digest and the algorithm used (SHA-256, 384, or 512) in the fields indicated in this section.
+The SAML assertion or OIDC token returned to the User Agent after a successful login must contain both the trusted key digest (or certificate fingerprint) and the algorithm used (SHA-256, 384, or 512) in the fields indicated in this section.
 
 ### User agent
 
