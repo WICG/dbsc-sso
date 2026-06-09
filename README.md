@@ -191,7 +191,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	When the browser sees the `Secure-Session-GenerateKey` header, it must check if the issuing request can set a cookie bound to the IdP's session, otherwise it fails the operation.
 
-	The new signing key must be tied to the Relying Party's domain by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
+	The new signing key must be tied to the Relying Party's origin by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
 
 	The key access control model is discussed in detail [further](#key-access-control) in this document.
 
