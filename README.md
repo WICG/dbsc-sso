@@ -329,10 +329,8 @@ The binding statement is defined as follows:
 ```json
 {
 	"stmt": "Base64URL encoded claim",
-	"aik": "[Base64URL encoded JWK of IdP_pak]",
+    "sig": "Base64URL encoded signature of `stmt`",
 	"fmt": "[TPM|SECURE_ENCLAVE]",
-	"challenge": "[Base64URL encoded challenge]",
-	"sub_key_digest": "Digest of RP public key using the hash algorithm associated with the chosen cryptographic algorithm"
 }
 ```
 
@@ -340,18 +338,24 @@ The attestation statement `stmt` can have two different formats depending on wha
 
 *  **TPM**: The [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) structure defined in the TPM 2.0 specs.
 
-*  **SECURE\_ENCLAVE**: The attestation statement is the concatenation of the challenge sent by the server and the signing key digest signed by $IdP_\text{ak-priv}$.
+*  **SECURE\_ENCLAVE**: The attestation statement is the concatenation of the challenge sent by the server and the signing key digest.
 
-In other words, it can be represented by:
+It can be represented by:
 
 ```
 // pseudo-code
 c := "aHVzYmFuZHJpZG...cmxkYmFzZWJhbGxhcnI=" // replay-resistant challenge
 hash_alg := get_hash_alg_for_crypto_alg(chosen_alg)
 t := hash(signing_key_spki, hash_alg)
-raw_stmt := sign(concat(c, t), IdP_ak-priv)
+raw_stmt := concat(c, t)
 encoded_stmt := base64url_enc(raw_stmt)
 ```
+
+The signature `sig` also depends on the format specified in the `fmt` field:
+
+* **TPM**: [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs. ](https://github.com/WICG/dbsc-sso/edit/main/README.md)
+
+* **Secure Enclave**: The content of `stmt` signed by $IdP_\text{ak-priv}$.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
