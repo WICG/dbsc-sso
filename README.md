@@ -192,7 +192,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	When the browser sees the `Secure-Session-GenerateKey` header, it must check if the issuing request can set a cookie bound to the IdP's session, otherwise it fails the operation.
 
-	The new signing key must be tied to the Relying Party's domain by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
+	The new signing key must be tied to the Relying Party's origin by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
 
 	The key access control model is discussed in detail [further](#key-access-control) in this document.
 
@@ -567,14 +567,14 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following properties:
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property called `target_domain`, which is the domain of the RP performing the sign in operation. The User Agent **must** limit this key usage to the domain indicated by this property.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** limit this key usage to the origin indicated by this property.
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
 Example:
 
 ```http
-Secure-Session-GenerateKey: (ES256 RS256); target_domain="relyingparty.com"; challenge="..."
+Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."
 ```
 
 #### Binding statement validation
@@ -613,7 +613,7 @@ The response is then encoded in the format of a DBSC proof and sent to the serve
 
 The User Agent creates a new key pair when instructed by the Identity Provider via the `Secure-Session-GenerateKey` header.
 
-The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target domain sent in the `Secure-Session-GenerateKey` header. Otherwise the User Agent returns an empty binding statement.
+The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header. Otherwise the User Agent returns an empty binding statement.
 
 As the key needs to be generated while the user is signing in to the Relying Party, this operation must be done synchronously. However, as TEE key generation is generally slow (might take up to 1s to finish), this can lead to bad user experience due to considerable latency added to the sign in flow.
 
