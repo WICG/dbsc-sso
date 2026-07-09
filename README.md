@@ -353,7 +353,7 @@ encoded_stmt := base64url_enc(raw_stmt)
 
 The signature `sig` also depends on the format specified in the `fmt` field:
 
-* **TPM**: [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs. ](https://github.com/WICG/dbsc-sso/edit/main/README.md)
+* **TPM**: [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs.
 
 * **Secure Enclave**: The content of `stmt` signed by $IdP_\text{ak-priv}$.
 
