@@ -192,7 +192,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	When the browser sees the `Secure-Session-GenerateKey` header, it must check if the issuing request can set a cookie bound to the IdP's session, otherwise it fails the operation.
 
-	The new signing key must be tied to the Relying Party's origin by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
+	The new signing key must be tied to the Relying Party's [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
 
 	The key access control model is discussed in detail [further](#key-access-control) in this document.
 
@@ -206,7 +206,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	On OIDC flows, the key digest is included in the OIDC token, which is sent via backchannel communication between the RP and the IdP.
 
-* **RP session initialization:** RPs can issue authentication cookies bound to the key (or certificate) trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest (or certificate fingerprint) along with the `provider_key_alg` to specify the algorithm used in the digest (or fingerprint) computation. The `provider_url` must also be provided to indicate the IdP that attested the underlying key (or certificate).
+* **RP session initialization:** RPs can issue authentication cookies bound to the key (or certificate) trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest (or certificate fingerprint) along with the `provider_key_alg` to specify the algorithm used in the digest (or fingerprint) computation.
 
 	RPs should not issue unbound long-lived cookies, otherwise the session would not be protected.
 
@@ -430,13 +430,12 @@ Before establishing the session, the RP should evaluate the following scenarios:
 	* If the signed IdP response contains the **initial parameters but lacks a trusted key**, it means that the IdP failed to assert any signing key. Detailed error messages may or may not be in the IdP response.
 	* If the signed IdP response **does not contain the initial parameters**, it's a strong indicator that the authentication request has been tampered with and this can be part of a downgrade attack.
 
-The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header as well as the `provider_url`, which must be the IdP domain, as shown in the [DBSC federated binding draft](https://w3c.github.io/webappsec-dbsc/#federated-sessions-example). The parameter `provider_key_alg` should also be included as part of the registration header.
+The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header. The parameter `provider_key_alg` should also be included as part of the registration header.
 
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criterias match:
 
-* RP's domain is the same indicated by the Identity Provider in the `target_domain` property of the `Secure-Session-GenerateKey` header.
+* RP's origin matches the origin indicated by the Identity Provider in the `target_origin` property of the `Secure-Session-GenerateKey` header.
 * The `provider_key` parameter matches the underlying key digest (according to the algorithm specified in `provider_key_alg`).
-* The `provider_url` matches the Identity Provider's domain.
 
 Once the existing key is sent to the RP, the session registration flow happens in the same way as the standard DBSC.
 
@@ -448,21 +447,17 @@ Both IdP and RP sessions are standard DBSC sessions, and upon authentication coo
 
 When the Identity Provider instructs the User Agent to generate a new signing key via the `Secure-Session-GenerateKey` header, the User Agent stores the generated private key and associates it with the following metadata:
 
-*  **Target Domain:** The domain specified in the `target_domain` parameter, which is the RP domain.
+*  **Target Origin:** The [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) specified in the `target_origin` parameter, which is the RP origin.
 
-Note: If the RP wants to keep separate keys for different subdomains, it's up to them to use separate [session IDs](https://w3c.github.io/webappsec-dbsc/#device-bound-session-session-identifier) so that browsers do not overwrite keys.
-
-*  **Provider URL:** The domain of the Identity Provider that triggered the key generation.
+Note: Because keys are scoped to origins, distinct subdomains naturally receive distinct keys. If an RP wants to keep separate keys on the same origin (or subdomain), it's up to them to use separate [session IDs](https://w3c.github.io/webappsec-dbsc/#device-bound-session-session-identifier) so that browsers do not overwrite keys.
 
 This metadata enforces a strict access control policy: the User Agent **must** only prove possession of this specific key to the Relying Party if:
 
 1. The Relying Party identifies the key by its digest (via the `provider_key` parameter in the `Secure-Session-Registration` header).
 
-1. The Relying Party's domain matches the stored **Target Domain**.
+1. The Relying Party's origin matches the stored **Target Origin**.
 
-1. The `provider_url` parameter provided by the Relying Party matches the stored **Provider URL**.
-
-By relying on the key digest as the primary identifier, the User Agent allows multiple keys to exist for the same `(Provider URL, Target Domain)` pair. This prevents key collisions in scenarios where an Identity Provider manages multiple tenants or sessions for the same Relying Party, ensuring that the correct key is always selected based on the unique fingerprint provided by the RP.
+By relying on the key digest as the primary identifier, the User Agent allows multiple keys to exist for the same **Target Origin**. This prevents key collisions in scenarios where an Identity Provider manages multiple tenants or sessions for the same Relying Party, ensuring that the correct key is always selected based on the unique fingerprint provided by the RP.
 
 ## Component-level design
 
@@ -553,7 +548,7 @@ As the DBSC session registration is done asynchronously, the RP needs to keep tr
 
 #### DBSC session registration
 
-In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's domain during its creation.
+In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's origin during its creation.
 
 When the User Agent responds with the DBSC registration proof (in the `Secure-Session-Response` header as a JWS):
 
@@ -704,7 +699,7 @@ Once this binding statement is verified, the IdP can then issue an authenticatio
 
 ### Relying Party's session initialization
 
-The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the property `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's domain assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
+The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the property `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's origin assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
 
 ## Alternatives Considered
 
