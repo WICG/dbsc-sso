@@ -23,8 +23,9 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 - [Introduction](#introduction)
-- [Attack vector in depth](#attack-vector-in-depth)
 - [Terminology](#terminology)
+- [How is it different from DBSC(E)?](#how-is-it-different-from-dbsce)
+- [Attack vector in depth](#attack-vector-in-depth)
 - [High-level design](#high-level-design)
   - [Identity Provider's session initialization](#identity-providers-session-initialization)
   - [Relying Party's session initialization](#relying-partys-session-initialization)
@@ -78,6 +79,7 @@ This document is inspired by the current [DBSC(E) Explainer](https://github.com/
 
 *  **IdP:** The **Identity Provider** that the user authenticates with. It manages user’s credentials and issues SAML assertions to relying parties.
 *  **RP:** Acronym for **Relying Party**; a web application that relies on IdP's assertion to allow users to access restricted content (referred to as "SP" or "Service Provider" in SAML docs).
+*  **Session Provider:** In the context of the underlying [DBSC specification](https://w3c.github.io/webappsec-dbsc/#session-provider), a website or service that issues and maintains a user session. In this explainer, the Session Provider in the SSO flow is referred to as the **Identity Provider (IdP)**.
 *  **TEE:** Acronym for **Trusted Execution Environment**; a secure, isolated area within a computer's main processor (CPU) that protects sensitive data and code from other parts of the system.
 *  **AIK:** Acronym for **Attestation Identity Key.**
 *  **Key material:** Asymmetric key pair hardware-backed (either by TPMs on PCs or Secure Enclaves on Mac devices).
@@ -270,7 +272,7 @@ Each step in the diagram is detailed below:
 	"typ": "dbsc+aik",
 	"cty": "jwt", // Indicates nested JWT
 	"jwk": { // Holds the attestation public key material.
-		"kt": "EC",
+		"kty": "EC",
 		"crv": "P-256",
 		"x": "...",
 		"y": "..."
@@ -504,9 +506,15 @@ The XML Schema Definition for these elements is defined as follows:
 				<xs:enumeration value="SHA-512"/>
 			</xs:restriction>
 		</xs:simpleType>
+		<xs:simpleType name="DigestType">
+			<xs:union memberTypes="xs:base64Binary xs:string"/>
+		</xs:simpleType>
+		<xs:simpleType name="FingerprintType">
+			<xs:union memberTypes="xs:hexBinary xs:string"/>
+		</xs:simpleType>
 	<xs:element name="TrustedKey">
 		<xs:complexType>
-			<xs:attribute name="digest" type="xs:base64Binary|xs:string" use="required">
+			<xs:attribute name="digest" type="dbsc:DigestType" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
 			<xs:attribute name="digest_alg" type="dbsc:DigestAlgorithmType" use="required">
@@ -516,7 +524,7 @@ The XML Schema Definition for these elements is defined as follows:
 	</xs:element>
 	<xs:element name="TrustedCertificate">
 		<xs:complexType>
-			<xs:attribute name="fingerprint" type="xs:hexBinary|xs:string" use="required">
+			<xs:attribute name="fingerprint" type="dbsc:FingerprintType" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
 			<xs:attribute name="fingerprint_alg" type="dbsc:DigestAlgorithmType" use="required">
@@ -527,20 +535,20 @@ The XML Schema Definition for these elements is defined as follows:
 </xs:schema>
 ```
 
-The same attributes are present in the OIDC Token as custom claims, as follows:
+Corresponding custom claims are present in the OIDC Token, as follows:
 
 ```json5
 {
 	"iss": "http://idp.com",
 	...
-	"dbsc_key_digest": "nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0=",
-	"dbsc_key_alg": "SHA-256|384|512",
-	"dbsc_cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
-	"dbsc_cert_fingerprint_alg": "SHA-256|384|512"
+	"key_digest": "nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0=",
+	"key_digest_alg": "SHA-256|384|512",
+	"cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
+	"cert_fingerprint_alg": "SHA-256|384|512"
 }
 ```
 
-In OIDC implementations, the Discovery Document may be updated to indicate that both `dbsc_key_digest` and `dbsc_key_alg` are supported claims.
+In OIDC implementations, the Discovery Document may be updated to indicate that `key_digest` and `key_digest_alg` (as well as `cert_fingerprint` and `cert_fingerprint_alg` for certificate-bound sessions) are supported claims.
 
 #### Key storage
 
@@ -553,8 +561,8 @@ In the RP's DBSC session registration, the parameter `provider_key` must be sent
 When the User Agent responds with the DBSC registration proof (in the `Secure-Session-Response` header as a JWS):
 
 1. The RP extracts the public key (`jwk`) from the JWS header.
-2. The RP computes the RFC 7638 JWK Thumbprint of the extracted `jwk` using the algorithm specified by the IdP (`dbsc_key_alg` or `digest_alg`).
-3. The RP verifies that this computed JWK Thumbprint matches the trusted `dbsc_key_digest` (or `<dbsc:TrustedKey>`) received in the IdP's SAML assertion or OIDC token.
+2. The RP computes the RFC 7638 JWK Thumbprint of the extracted `jwk` using the algorithm specified by the IdP (`key_digest_alg` in OIDC or `digest_alg` in SAML).
+3. The RP verifies that this computed JWK Thumbprint matches the trusted key digest received in the IdP's assertion or token (`key_digest` in OIDC, or the `digest` attribute of `<dbsc:TrustedKey>` in SAML).
 4. The RP verifies the JWS signature over the registration challenge to prove possession of the private key.
 
 If both the JWK thumbprint verification and the signature verification succeed (or if certificate fingerprint verification succeeds for certificate-bound sessions), the RP establishes the bound session with the User Agent.
@@ -635,13 +643,13 @@ The binding statement validation is done as follows:
 		1. Verify that the first half of `raw_stmt` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, fixed 64 bytes for P-256 / ES256).
 		1. Verify the signature over `raw_stmt` using the stored $IdP_\text{ak-pub}$ associated with the user session (converting the IEEE P1363 signature to ASN.1 DER format if required by the cryptographic verification library).
-		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint (`cnf.jkt`) to include in the SAML assertion / OIDC token forwarded to the RP.
+		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 	* **`TPM`**:
 		1. Decode `stmt` as `TPMS_ATTEST` and `sig` as `TPMT_SIGNATURE`.
 		1. Verify that `stmt.extraData` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify `sig` over `stmt` using the stored $IdP_\text{ak-pub}$ per TPM 2.0 specs.
-		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint (`cnf.jkt`) to include in the SAML assertion / OIDC token forwarded to the RP.
+		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 
 #### SAML Assertions and OIDC tokens
 
