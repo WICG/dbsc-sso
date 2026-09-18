@@ -188,7 +188,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 * **Browser authentication:** The IdP checks the browser authentication. This can be done either via authentication cookie presence or re-validating the proof-of-possession.
 
-* **Identity Provider asks the browser to generate a new key:** If the IdP detects a bound session for that browser when receiving the authentication request, it then returns an **HTTP 401** with the `Secure-Session-GenerateKey` header. The header indicates that the browser must generate a new signing key for the underlying RP.
+* **Identity Provider asks the browser to generate a new key:** If the IdP detects a bound session for that browser when receiving the authentication request, it then returns an **HTTP 401** with the `Secure-Session-GenerateKey` header. The header indicates that the browser must generate a new signing key for the underlying RP, and includes the `provider_session_id` identifying the IdP session whose attestation key (AIK) will be used to attest the new key.
 
 	When the browser sees the `Secure-Session-GenerateKey` header, it must check if the issuing request can set a cookie bound to the IdP's session, otherwise it fails the operation.
 
@@ -615,10 +615,12 @@ The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Ag
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `provider_session_id`, which identifies the Identity Provider's bound session. The User Agent uses this identifier to look up the corresponding Attestation Identity Key (AIK) to attest the newly generated RP key. If no active session or AIK matches this identifier, the User Agent returns an empty binding statement.
+
 Example:
 
 ```http
-Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."
+Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."; provider_session_id="..."
 ```
 
 #### Binding statement validation
@@ -658,7 +660,7 @@ The registration statement is built as follows:
 1. Browser computes a new session key ($IdP_\text{sk-pub}, IdP_\text{sk-priv}$) for the IdP.
 1. Browser signs the challenge sent in the `Secure-Session-Registration` header using $IdP_\text{sk-priv}$.
 1. Browser computes a new attestation key ($IdP_\text{ak-pub}, IdP_\text{ak-priv}$) for the IdP.
-	* The attestation key should be keyed by the (IdP’s domain, session ID) pair.
+	* The attestation key should be keyed by the (IdP’s domain, session ID) pair, where the IdP's domain is the registrable domain as stated in the [DBSC session store specification](https://w3c.github.io/webappsec-dbsc/#framework-session-store).
 1. Browser computes the attestation claim (`stmt`):
 	* For `TPM`: Browser encodes $IdP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
 	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(IdP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
@@ -671,7 +673,7 @@ The response is then encoded in the format of a DBSC proof and sent to the serve
 
 The User Agent creates a new key pair when instructed by the Identity Provider via the `Secure-Session-GenerateKey` header.
 
-The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header. Otherwise the User Agent returns an empty binding statement.
+The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header, and a valid Identity Provider session matching `provider_session_id` (with its associated AIK) is found. Otherwise the User Agent returns an empty binding statement.
 
 As the key needs to be generated while the user is signing in to the Relying Party, this operation must be done synchronously. However, as TEE key generation is generally slow (might take up to 1s to finish), this can lead to bad user experience due to considerable latency added to the sign in flow.
 
@@ -685,7 +687,7 @@ This is done as follows:
 
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
 1. Browser computes the RP session key $RP_\text{sk}$ when the IdP instructs it to.
-1. Browser retrieves the attestation key keyed by (IdP domain, session ID).
+1. Browser retrieves the attestation key keyed by (IdP domain, session ID) matching the `provider_session_id` property from the `Secure-Session-GenerateKey` header. If no session or attestation key is found matching `provider_session_id`, the browser returns an empty binding statement.
 1. Browser computes the attestation statement (`stmt`):
 	* For `TPM`: Browser encodes $RP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
 	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(RP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
