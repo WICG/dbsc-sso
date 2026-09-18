@@ -23,8 +23,9 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 - [Introduction](#introduction)
-- [Attack vector in depth](#attack-vector-in-depth)
 - [Terminology](#terminology)
+- [How is it different from DBSC(E)?](#how-is-it-different-from-dbsce)
+- [Attack vector in depth](#attack-vector-in-depth)
 - [High-level design](#high-level-design)
   - [Identity Provider's session initialization](#identity-providers-session-initialization)
   - [Relying Party's session initialization](#relying-partys-session-initialization)
@@ -78,6 +79,7 @@ This document is inspired by the current [DBSC(E) Explainer](https://github.com/
 
 *  **IdP:** The **Identity Provider** that the user authenticates with. It manages user’s credentials and issues SAML assertions to relying parties.
 *  **RP:** Acronym for **Relying Party**; a web application that relies on IdP's assertion to allow users to access restricted content (referred to as "SP" or "Service Provider" in SAML docs).
+*  **Session Provider:** In the context of the underlying [DBSC specification](https://w3c.github.io/webappsec-dbsc/#session-provider), a website or service that issues and maintains a user session. In this explainer, the Session Provider in the SSO flow is referred to as the **Identity Provider (IdP)**.
 *  **TEE:** Acronym for **Trusted Execution Environment**; a secure, isolated area within a computer's main processor (CPU) that protects sensitive data and code from other parts of the system.
 *  **AIK:** Acronym for **Attestation Identity Key.**
 *  **Key material:** Asymmetric key pair hardware-backed (either by TPMs on PCs or Secure Enclaves on Mac devices).
@@ -188,11 +190,11 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 * **Browser authentication:** The IdP checks the browser authentication. This can be done either via authentication cookie presence or re-validating the proof-of-possession.
 
-* **Identity Provider asks the browser to generate a new key:** If the IdP detects a bound session for that browser when receiving the authentication request, it then returns an **HTTP 401** with the `Secure-Session-GenerateKey` header. The header indicates that the browser must generate a new signing key for the underlying RP.
+* **Identity Provider asks the browser to generate a new key:** If the IdP detects a bound session for that browser when receiving the authentication request, it then returns an **HTTP 401** with the `Secure-Session-GenerateKey` header. The header indicates that the browser must generate a new signing key for the underlying RP, and includes the `provider_session_id` identifying the IdP session whose attestation key (AIK) will be used to attest the new key.
 
 	When the browser sees the `Secure-Session-GenerateKey` header, it must check if the issuing request can set a cookie bound to the IdP's session, otherwise it fails the operation.
 
-	The new signing key must be tied to the Relying Party's origin by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
+	The new signing key must be tied to the Relying Party's [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that are supposed to have access to it.
 
 	The key access control model is discussed in detail [further](#key-access-control) in this document.
 
@@ -206,7 +208,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	On OIDC flows, the key digest is included in the OIDC token, which is sent via backchannel communication between the RP and the IdP.
 
-* **RP session initialization:** RPs can issue authentication cookies bound to the key (or certificate) trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest (or certificate fingerprint) along with the `provider_key_alg` to specify the algorithm used in the digest (or fingerprint) computation. The `provider_url` must also be provided to indicate the IdP that attested the underlying key (or certificate).
+* **RP session initialization:** RPs can issue authentication cookies bound to the key (or certificate) trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest (or certificate fingerprint).
 
 	RPs should not issue unbound long-lived cookies, otherwise the session would not be protected.
 
@@ -270,7 +272,7 @@ Each step in the diagram is detailed below:
 	"typ": "dbsc+aik",
 	"cty": "jwt", // Indicates nested JWT
 	"jwk": { // Holds the attestation public key material.
-		"kt": "EC",
+		"kty": "EC",
 		"crv": "P-256",
 		"x": "...",
 		"y": "..."
@@ -430,13 +432,12 @@ Before establishing the session, the RP should evaluate the following scenarios:
 	* If the signed IdP response contains the **initial parameters but lacks a trusted key**, it means that the IdP failed to assert any signing key. Detailed error messages may or may not be in the IdP response.
 	* If the signed IdP response **does not contain the initial parameters**, it's a strong indicator that the authentication request has been tampered with and this can be part of a downgrade attack.
 
-The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header as well as the `provider_url`, which must be the IdP domain, as shown in the [DBSC federated binding draft](https://w3c.github.io/webappsec-dbsc/#federated-sessions-example). The parameter `provider_key_alg` should also be included as part of the registration header.
+The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header.
 
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criterias match:
 
-* RP's domain is the same indicated by the Identity Provider in the `target_domain` property of the `Secure-Session-GenerateKey` header.
-* The `provider_key` parameter matches the underlying key digest (according to the algorithm specified in `provider_key_alg`).
-* The `provider_url` matches the Identity Provider's domain.
+* RP's origin matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
+* The `provider_key` parameter matches the underlying key digest, treated as an opaque string.
 
 Once the existing key is sent to the RP, the session registration flow happens in the same way as the standard DBSC.
 
@@ -448,21 +449,17 @@ Both IdP and RP sessions are standard DBSC sessions, and upon authentication coo
 
 When the Identity Provider instructs the User Agent to generate a new signing key via the `Secure-Session-GenerateKey` header, the User Agent stores the generated private key and associates it with the following metadata:
 
-*  **Target Domain:** The domain specified in the `target_domain` parameter, which is the RP domain.
+*  **Target Origin:** The [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) specified in the `target_origin` parameter, which is the RP origin.
 
-Note: If the RP wants to keep separate keys for different subdomains, it's up to them to use separate [session IDs](https://w3c.github.io/webappsec-dbsc/#device-bound-session-session-identifier) so that browsers do not overwrite keys.
-
-*  **Provider URL:** The domain of the Identity Provider that triggered the key generation.
+Note: Because keys are scoped to origins, distinct subdomains naturally receive distinct keys. If an RP wants to keep separate keys on the same origin, it's up to them to use separate [session IDs](https://w3c.github.io/webappsec-dbsc/#device-bound-session-session-identifier) so that browsers do not overwrite keys.
 
 This metadata enforces a strict access control policy: the User Agent **must** only prove possession of this specific key to the Relying Party if:
 
 1. The Relying Party identifies the key by its digest (via the `provider_key` parameter in the `Secure-Session-Registration` header).
 
-1. The Relying Party's domain matches the stored **Target Domain**.
+1. The Relying Party's origin matches the stored **Target Origin**.
 
-1. The `provider_url` parameter provided by the Relying Party matches the stored **Provider URL**.
-
-By relying on the key digest as the primary identifier, the User Agent allows multiple keys to exist for the same `(Provider URL, Target Domain)` pair. This prevents key collisions in scenarios where an Identity Provider manages multiple tenants or sessions for the same Relying Party, ensuring that the correct key is always selected based on the unique fingerprint provided by the RP.
+By relying on the key digest as the primary identifier, the User Agent allows multiple keys to exist for the same **Target Origin**. This prevents key collisions in scenarios where an Identity Provider manages multiple tenants or sessions for the same Relying Party, ensuring that the correct key is always selected based on the unique fingerprint provided by the RP.
 
 ## Component-level design
 
@@ -509,9 +506,15 @@ The XML Schema Definition for these elements is defined as follows:
 				<xs:enumeration value="SHA-512"/>
 			</xs:restriction>
 		</xs:simpleType>
+		<xs:simpleType name="DigestType">
+			<xs:union memberTypes="xs:base64Binary xs:string"/>
+		</xs:simpleType>
+		<xs:simpleType name="FingerprintType">
+			<xs:union memberTypes="xs:hexBinary xs:string"/>
+		</xs:simpleType>
 	<xs:element name="TrustedKey">
 		<xs:complexType>
-			<xs:attribute name="digest" type="xs:base64Binary|xs:string" use="required">
+			<xs:attribute name="digest" type="dbsc:DigestType" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
 			<xs:attribute name="digest_alg" type="dbsc:DigestAlgorithmType" use="required">
@@ -521,7 +524,7 @@ The XML Schema Definition for these elements is defined as follows:
 	</xs:element>
 	<xs:element name="TrustedCertificate">
 		<xs:complexType>
-			<xs:attribute name="fingerprint" type="xs:hexBinary|xs:string" use="required">
+			<xs:attribute name="fingerprint" type="dbsc:FingerprintType" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
 			<xs:attribute name="fingerprint_alg" type="dbsc:DigestAlgorithmType" use="required">
@@ -532,20 +535,20 @@ The XML Schema Definition for these elements is defined as follows:
 </xs:schema>
 ```
 
-The same attributes are present in the OIDC Token as custom claims, as follows:
+Corresponding custom claims are present in the OIDC Token, as follows:
 
 ```json5
 {
 	"iss": "http://idp.com",
 	...
-	"dbsc_key_digest": "nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0=",
-	"dbsc_key_alg": "SHA-256|384|512",
-	"dbsc_cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
-	"dbsc_cert_fingerprint_alg": "SHA-256|384|512"
+	"key_digest": "nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0=",
+	"key_digest_alg": "SHA-256|384|512",
+	"cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
+	"cert_fingerprint_alg": "SHA-256|384|512"
 }
 ```
 
-In OIDC implementations, the Discovery Document may be updated to indicate that both `dbsc_key_digest` and `dbsc_key_alg` are supported claims.
+In OIDC implementations, the Discovery Document may be updated to indicate that `key_digest` and `key_digest_alg` (as well as `cert_fingerprint` and `cert_fingerprint_alg` for certificate-bound sessions) are supported claims.
 
 #### Key storage
 
@@ -553,13 +556,13 @@ As the DBSC session registration is done asynchronously, the RP needs to keep tr
 
 #### DBSC session registration
 
-In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's domain during its creation.
+In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's origin during its creation.
 
 When the User Agent responds with the DBSC registration proof (in the `Secure-Session-Response` header as a JWS):
 
 1. The RP extracts the public key (`jwk`) from the JWS header.
-2. The RP computes the RFC 7638 JWK Thumbprint of the extracted `jwk` using the algorithm specified by the IdP (`dbsc_key_alg` or `digest_alg`).
-3. The RP verifies that this computed JWK Thumbprint matches the trusted `dbsc_key_digest` (or `<dbsc:TrustedKey>`) received in the IdP's SAML assertion or OIDC token.
+2. The RP computes the RFC 7638 JWK Thumbprint of the extracted `jwk` using the algorithm specified by the IdP (`key_digest_alg` in OIDC or `digest_alg` in SAML).
+3. The RP verifies that this computed JWK Thumbprint matches the trusted key digest received in the IdP's assertion or token (`key_digest` in OIDC, or the `digest` attribute of `<dbsc:TrustedKey>` in SAML).
 4. The RP verifies the JWS signature over the registration challenge to prove possession of the private key.
 
 If both the JWK thumbprint verification and the signature verification succeed (or if certificate fingerprint verification succeeds for certificate-bound sessions), the RP establishes the bound session with the User Agent.
@@ -614,16 +617,18 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 #### DBSC Key generation header
 
-The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following properties:
+The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following parameters:
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** limit this key usage to the origin indicated by this property.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** limit this key usage to the origin indicated by this parameter.
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `challenge`, which is a replay-resistant challenge used to prove the private key possession.
+
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `provider_session_id`, which identifies the Identity Provider's bound session. The User Agent uses this identifier to look up the corresponding Attestation Identity Key (AIK) to attest the newly generated RP key. If no active session or AIK matches this identifier, the User Agent ignores the `Generate-Key` instruction and does not reply to the identity provider.
 
 Example:
 
 ```http
-Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."
+Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."; provider_session_id="..."
 ```
 
 #### Binding statement validation
@@ -638,13 +643,13 @@ The binding statement validation is done as follows:
 		1. Verify that the first half of `raw_stmt` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, fixed 64 bytes for P-256 / ES256).
 		1. Verify the signature over `raw_stmt` using the stored $IdP_\text{ak-pub}$ associated with the user session (converting the IEEE P1363 signature to ASN.1 DER format if required by the cryptographic verification library).
-		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint (`cnf.jkt`) to include in the SAML assertion / OIDC token forwarded to the RP.
+		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 	* **`TPM`**:
 		1. Decode `stmt` as `TPMS_ATTEST` and `sig` as `TPMT_SIGNATURE`.
 		1. Verify that `stmt.extraData` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify `sig` over `stmt` using the stored $IdP_\text{ak-pub}$ per TPM 2.0 specs.
-		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint (`cnf.jkt`) to include in the SAML assertion / OIDC token forwarded to the RP.
+		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 
 #### SAML Assertions and OIDC tokens
 
@@ -656,14 +661,14 @@ There are a few capabilities that the browser must provide in order to support D
 
 #### Identity Provider registration statement
 
-When signing in to an IdP, the User Agent must provide not only the session key and the challenge signature, but also an attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature. The attestation key, statement, and signature are generated whenever the property `aik_required` is set in the `Secure-Session-Registration` header.
+When signing in to an IdP, the User Agent must provide not only the session key and the challenge signature, but also an attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature. The attestation key, statement, and signature are generated whenever the parameter `aik_required` is set in the `Secure-Session-Registration` header.
 
 The registration statement is built as follows:
 
 1. Browser computes a new session key ($IdP_\text{sk-pub}, IdP_\text{sk-priv}$) for the IdP.
 1. Browser signs the challenge sent in the `Secure-Session-Registration` header using $IdP_\text{sk-priv}$.
 1. Browser computes a new attestation key ($IdP_\text{ak-pub}, IdP_\text{ak-priv}$) for the IdP.
-	* The attestation key should be keyed by the (IdP’s domain, session ID) pair.
+	* The attestation key should be keyed by the (IdP’s domain, session ID) pair, where the IdP's domain is the registrable domain as stated in the [DBSC session store specification](https://w3c.github.io/webappsec-dbsc/#framework-session-store).
 1. Browser computes the attestation claim (`stmt`):
 	* For `TPM`: Browser encodes $IdP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
 	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(IdP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
@@ -676,7 +681,7 @@ The response is then encoded in the format of a DBSC proof and sent to the serve
 
 The User Agent creates a new key pair when instructed by the Identity Provider via the `Secure-Session-GenerateKey` header.
 
-The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header. Otherwise the User Agent returns an empty binding statement.
+The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header, and a valid Identity Provider session matching `provider_session_id` (with its associated AIK) is found. Otherwise the User Agent returns an empty binding statement.
 
 As the key needs to be generated while the user is signing in to the Relying Party, this operation must be done synchronously. However, as TEE key generation is generally slow (might take up to 1s to finish), this can lead to bad user experience due to considerable latency added to the sign in flow.
 
@@ -690,7 +695,7 @@ This is done as follows:
 
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
 1. Browser computes the RP session key $RP_\text{sk}$ when the IdP instructs it to.
-1. Browser retrieves the attestation key keyed by (IdP domain, session ID).
+1. Browser retrieves the attestation key keyed by (IdP domain, session ID) matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header. If no session or attestation key is found matching `provider_session_id`, the browser returns an empty binding statement.
 1. Browser computes the attestation statement (`stmt`):
 	* For `TPM`: Browser encodes $RP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
 	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(RP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
@@ -704,7 +709,7 @@ Once this binding statement is verified, the IdP can then issue an authenticatio
 
 ### Relying Party's session initialization
 
-The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the property `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's domain assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
+The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the parameter `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's origin assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
 
 ## Alternatives Considered
 
