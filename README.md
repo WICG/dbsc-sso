@@ -620,10 +620,12 @@ The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Ag
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
+* An [sf-parameter](https://datatracker.ietf.org/doc/html/rfc9651#name-parameters) whose key is `provider_session_id`, and whose value is an [sf-string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings), conveying which of the Identity Provider's sessions the attestation key used to certify this key is keyed by. The User Agent needs it because the attestation key is keyed by the (IdP’s domain, session ID) pair: with two concurrent sessions at the same IdP, the domain alone does not identify a single key.
+
 Example:
 
 ```http
-Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."
+Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.com"; challenge="..."; provider_session_id="..."
 ```
 
 #### Binding statement validation
