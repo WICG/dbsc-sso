@@ -299,14 +299,18 @@ For `TPM`:
 
 ```json5
 {
-	"fmt": "TPM",
-	"alg": "ES256|RS256",
-	"stmt": "Base64URL encoded TPMS_ATTEST structure",
-	"sig": "Base64URL encoded TPMT_SIGNATURE structure",
-	"sub_key": "Base64URL encoded TPMT_PUBLIC structure",
-	"extra_claims": { // Optional: platform or broker metadata
-		// e.g., "helper_id", "binding_type", "attestation_format"
-	}
+  "fmt":          "tpm",
+  "alg":          "ES256" | "RS256" | ...,
+  // from TPM2_Certify(object=sub_key, signer=sig_key, qualifyingData=hash(challenge, hash_alg(alg)))
+  "stmt":         base64url(TPMS_ATTEST),
+  // signature from TPM2_Certify
+  "sig":          base64url(TPMT_SIGNATURE),
+  // from TPM2_ReadPublic(sub_key)
+  "sub_key":      base64url(TPMT_PUBLIC(sub_key)),
+  // optional: key identifier or JWK of the signing key (e.g. for attestation service or multi-device lookup)
+  "sig_key":      "<JWK or key id>",
+  // optional: container for enterprise/LKH-specific metadata (e.g. helper_id, binding_type)
+  "extra_claims": { ... }
 }
 ```
 
@@ -314,13 +318,16 @@ For `SECURE_ENCLAVE`:
 
 ```json5
 {
-	"fmt": "SECURE_ENCLAVE",
-	"alg": "ES256",
-	"stmt": "Base64URL encoded raw_stmt",
-	"sig": "Base64URL encoded signature of raw_stmt",
-	"extra_claims": { // Optional: platform or broker metadata
-		// e.g., "helper_id", "binding_type", "attestation_format"
-	}
+  "fmt":          "secure_enclave",
+  "alg":          "ES256" | ...,
+  // raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(sub_key), hash_alg(alg)))
+  "stmt":         base64url(raw_stmt),
+  // signature over raw_stmt in IEEE P1363 ("raw" r || s) format
+  "sig":          base64url(sign(raw_stmt, sig_alg(alg))),
+  // optional: key identifier or JWK of the signing key (e.g. for attestation service or multi-device lookup)
+  "sig_key":      "<JWK or key id>",
+  // optional: container for enterprise/LKH-specific metadata (e.g. helper_id, binding_type)
+  "extra_claims": { ... }
 }
 ```
 
