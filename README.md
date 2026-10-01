@@ -643,7 +643,7 @@ The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Ag
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) property `provider_session_id`, which identifies the Identity Provider's bound session. The User Agent uses this identifier to look up the corresponding Attestation Identity Key (AIK) to attest the newly generated RP key. If no active session or AIK matches this identifier, the User Agent returns an empty binding statement.
+* An [sf-parameter](https://datatracker.ietf.org/doc/html/rfc9651#name-parameters) whose key is `provider_session_id`, and whose value is an [sf-string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings), conveying which of the Identity Provider's sessions the attestation key used to certify this key is keyed by. The User Agent needs it because the attestation key is keyed by the (IdP’s domain, session ID) pair: with two concurrent sessions at the same IdP, the domain alone does not identify a single key.
 
 Example:
 
