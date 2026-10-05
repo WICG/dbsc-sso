@@ -548,7 +548,7 @@ Corresponding custom claims are present in the OIDC Token, as follows:
 }
 ```
 
-In OIDC implementations, the Discovery Document may be updated to indicate that `key_digest` and `key_digest_alg` (as well as `cert_fingerprint` and `cert_fingerprint_alg` for certificate-bound sessions) are supported claims.
+In OIDC implementations, the Discovery Document may be updated to indicate that `dbsc_trusted_key_digest` and `dbsc_trusted_key_digest_alg` (as well as `dbsc_trusted_cert_fingerprint` and `dbsc_trusted_cert_fingerprint_alg` for certificate-bound sessions) are supported claims.
 
 #### Key storage
 
@@ -561,8 +561,8 @@ In the RP's DBSC session registration, the parameter `provider_key` must be sent
 When the User Agent responds with the DBSC registration proof (in the `Secure-Session-Response` header as a JWS):
 
 1. The RP extracts the public key (`jwk`) from the JWS header.
-2. The RP computes the RFC 7638 JWK Thumbprint of the extracted `jwk` using the algorithm specified by the IdP (`key_digest_alg` in OIDC or `digest_alg` in SAML).
-3. The RP verifies that this computed JWK Thumbprint matches the trusted key digest received in the IdP's assertion or token (`key_digest` in OIDC, or the `digest` attribute of `<dbsc:TrustedKey>` in SAML).
+2. The RP computes the RFC 7638 JWK Thumbprint of the extracted `jwk` using the algorithm specified by the IdP (`dbsc_trusted_key_digest_alg` in OIDC or `digest_alg` in SAML).
+3. The RP verifies that this computed JWK Thumbprint matches the trusted key digest received in the IdP's assertion or token (`dbsc_trusted_key_digest` in OIDC, or the `digest` attribute of `<dbsc:TrustedKey>` in SAML).
 4. The RP verifies the JWS signature over the registration challenge to prove possession of the private key.
 
 If both the JWK thumbprint verification and the signature verification succeed (or if certificate fingerprint verification succeeds for certificate-bound sessions), the RP establishes the bound session with the User Agent.
@@ -623,7 +623,7 @@ The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Ag
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `provider_session_id`, which identifies the Identity Provider's bound session. The User Agent uses this identifier to look up the corresponding Attestation Identity Key (AIK) to attest the newly generated RP key. If no active session or AIK matches this identifier, the User Agent ignores the `Generate-Key` instruction and does not reply to the identity provider.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `provider_session_id`, which identifies the Identity Provider's bound session. The User Agent uses this identifier to look up the corresponding Attestation Identity Key (AIK) to attest the newly generated RP key. If no active session or AIK matches this identifier, the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
 Example:
 
@@ -643,13 +643,13 @@ The binding statement validation is done as follows:
 		1. Verify that the first half of `raw_stmt` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, fixed 64 bytes for P-256 / ES256).
 		1. Verify the signature over `raw_stmt` using the stored $IdP_\text{ak-pub}$ associated with the user session (converting the IEEE P1363 signature to ASN.1 DER format if required by the cryptographic verification library).
-		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
+		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 	* **`TPM`**:
 		1. Decode `stmt` as `TPMS_ATTEST` and `sig` as `TPMT_SIGNATURE`.
 		1. Verify that `stmt.extraData` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify `sig` over `stmt` using the stored $IdP_\text{ak-pub}$ per TPM 2.0 specs.
-		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
+		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 
 #### SAML Assertions and OIDC tokens
 
@@ -681,7 +681,7 @@ The response is then encoded in the format of a DBSC proof and sent to the serve
 
 The User Agent creates a new key pair when instructed by the Identity Provider via the `Secure-Session-GenerateKey` header.
 
-The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header, and a valid Identity Provider session matching `provider_session_id` (with its associated AIK) is found. Otherwise the User Agent returns an empty binding statement.
+The User Agent only creates such a key if and only if the user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header, and a valid Identity Provider session matching `provider_session_id` (with its associated AIK) is found. Otherwise the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
 As the key needs to be generated while the user is signing in to the Relying Party, this operation must be done synchronously. However, as TEE key generation is generally slow (might take up to 1s to finish), this can lead to bad user experience due to considerable latency added to the sign in flow.
 
@@ -695,7 +695,7 @@ This is done as follows:
 
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
 1. Browser computes the RP session key $RP_\text{sk}$ when the IdP instructs it to.
-1. Browser retrieves the attestation key keyed by (IdP domain, session ID) matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header, where the IdP domain is the registrable domain of the issuing request's host. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session or attestation key is found matching `provider_session_id`, or the issuing request is not in scope of that session, the browser returns an empty binding statement.
+1. Browser retrieves the attestation key keyed by (IdP domain, session ID) matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header, where the IdP domain is the registrable domain of the issuing request's host. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session or attestation key is found matching `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 1. Browser computes the attestation statement (`stmt`):
 	* For `TPM`: Browser encodes $RP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
 	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(RP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
