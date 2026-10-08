@@ -308,20 +308,21 @@ For `SECURE_ENCLAVE`:
 	"fmt": "SECURE_ENCLAVE",
 	"alg": "ES256",
 	"stmt": "Base64URL encoded raw_stmt",
-	"sig": "Base64URL encoded signature of raw_stmt"
+	"sig": "Base64URL encoded signature of raw_stmt",
+	"sub_key": "Base64URL encoded SubjectPublicKeyInfo structure"
 }
 ```
 
 *  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`. The IdP MUST store this value with the attestation key; it is the value the [binding statement validation](#binding-statement-validation) branches on.
-*  **alg**: The **signature** algorithm of the attestation signing key ($IdP_\text{ak}$), e.g., `ES256` or `RS256` — not a digest algorithm. The hash algorithm used for hashing the challenge and computing the JWK digest is written `hash_alg(alg)` and is derived from it (e.g. SHA-256 for `ES256`/`RS256`, SHA-384 for `ES384`). The IdP MUST store `alg` with the attestation key; the binding statement does not repeat it.
+*  **alg**: The **signature** algorithm of the attestation signing key ($IdP_\text{ak}$), e.g., `ES256` or `RS256` — not a digest algorithm. The hash algorithm used for hashing the challenge and computing the subject key digest is written `hash_alg(alg)` and is derived from it (e.g. SHA-256 for `ES256`/`RS256`, SHA-384 for `ES384`). The IdP MUST store `alg` with the attestation key; the binding statement does not repeat it.
 *  **stmt**: The attestation statement payload encoded in Base64URL:
    * If `fmt` is `TPM`, it is the [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) object certifying `sub_key`, generated with `qualifyingData` set to the hashed challenge `hash(challenge, hash_alg(alg))`. Hashing the challenge ensures a fixed payload size across the hardware/enclave boundary.
-   * If `fmt` is `SECURE_ENCLAVE`, it is `base64url_enc(raw_stmt)` where `raw_stmt` is the concatenation of the hashed challenge and the raw canonical JWK digest of $IdP_\text{sk-pub}$ ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)):
+   * If `fmt` is `SECURE_ENCLAVE`, it is `base64url_enc(raw_stmt)` where `raw_stmt` is the concatenation of the hashed challenge and the digest of the subject key as carried in `sub_key`:
 
 ```
 // pseudo-code
 c := hash(challenge, hash_alg(alg)) // hashed challenge
-d := hash(canonical_jwk(IdP_sk-pub), hash_alg(alg)) // raw RFC 7638 JWK digest bytes
+d := hash(sub_key_bytes, hash_alg(alg)) // digest over the DER SubjectPublicKeyInfo
 raw_stmt := concat(c, d)
 stmt := base64url_enc(raw_stmt)
 ```
@@ -329,7 +330,11 @@ stmt := base64url_enc(raw_stmt)
 *  **sig**: The attestation statement signature encoded in Base64URL. If `fmt` is set to `TPM`, the format of the signature is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is the ECDSA signature over `raw_stmt` signed using $IdP_\text{ak-priv}$, formatted as a raw IEEE P1363 signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per [RFC 7518 Section 3.4](https://www.rfc-editor.org/rfc/rfc7518#section-3.4)), encoded in Base64URL.
 
 	> **Platform Implementation Note (Apple platforms):** On Apple platforms, `SecKeyCreateSignature` produces an ASN.1 DER-encoded ECDSA signature (`kSecKeyAlgorithmECDSASignatureMessageX962SHA256`). Implementations (such as Chromium / User Agents) MUST convert this ASN.1 DER signature to the raw IEEE P1363 format ($r \parallel s$, fixed 64 bytes for P-256) before Base64URL encoding into `sig`.
-*  **sub_key**: (Present only when `fmt` is `TPM`) The Base64URL-encoded [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure representing the public key of the subject key being certified ($IdP_\text{sk-pub}$). Omitted for `SECURE_ENCLAVE`.
+*  **sub_key**: The Base64URL-encoded public key of the subject key being certified ($IdP_\text{sk-pub}$). The encoding is selected by `fmt`:
+   * If `fmt` is `TPM`, it is the [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure.
+   * If `fmt` is `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` ([RFC 5280 Section 4.1.2.7](https://www.rfc-editor.org/rfc/rfc5280#section-4.1.2.7)).
+
+	The field is required for both formats. `stmt` only ever carries a *digest* of the subject key, so without `sub_key` the IdP cannot recover the key material itself, and it cannot re-derive that digest under any other encoding.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -368,18 +373,19 @@ For `SECURE_ENCLAVE`:
 ```json5
 {
 	"stmt": "Base64URL encoded raw_stmt",
-	"sig": "Base64URL encoded signature of raw_stmt"
+	"sig": "Base64URL encoded signature of raw_stmt",
+	"sub_key": "Base64URL encoded SubjectPublicKeyInfo structure"
 }
 ```
 
 *  **stmt**: The attestation statement payload encoded in Base64URL:
    * If the stored `fmt` is `TPM`, it is the [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) structure certifying $RP_\text{sk}$, generated with `qualifyingData` set to `hash(challenge, hash_alg(alg))`.
-   * If the stored `fmt` is `SECURE_ENCLAVE`, it is `base64url_enc(raw_stmt)` where `raw_stmt` is the concatenation of the hashed challenge and the raw canonical JWK digest of $RP_\text{sk-pub}$ ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)):
+   * If the stored `fmt` is `SECURE_ENCLAVE`, it is `base64url_enc(raw_stmt)` where `raw_stmt` is the concatenation of the hashed challenge and the digest of the subject key as carried in `sub_key`:
 
 ```
 // pseudo-code
 c := hash(challenge, hash_alg(alg)) // hashed challenge
-d := hash(canonical_jwk(RP_sk-pub), hash_alg(alg)) // raw RFC 7638 JWK digest bytes
+d := hash(sub_key_bytes, hash_alg(alg)) // digest over the DER SubjectPublicKeyInfo
 raw_stmt := concat(c, d)
 stmt := base64url_enc(raw_stmt)
 ```
@@ -387,7 +393,11 @@ stmt := base64url_enc(raw_stmt)
 *  **sig**: The signature encoded in Base64URL:
    * If the stored `fmt` is `TPM`, it is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs.
    * If the stored `fmt` is `SECURE_ENCLAVE`, it is the ECDSA signature over `raw_stmt` signed using $IdP_\text{ak-priv}$, formatted as a raw IEEE P1363 signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per [RFC 7518 Section 3.4](https://www.rfc-editor.org/rfc/rfc7518#section-3.4)), encoded in Base64URL. On Apple platforms, user agents MUST convert the ASN.1 DER signature from `SecKeyCreateSignature` to the raw IEEE P1363 format ($r \parallel s$, fixed 64 bytes for P-256) before Base64URL encoding into `sig`. Unlike `TPMT_SIGNATURE`, this encoding carries no algorithm identifier, so the stored AIK record is what tells the IdP how to *decode* it, not merely how to verify it.
-*  **sub_key**: (Present only when the stored `fmt` is `TPM`) The Base64URL-encoded [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure representing the public key of the per-RP key ($RP_\text{sk-pub}$). Omitted for `SECURE_ENCLAVE`.
+*  **sub_key**: The Base64URL-encoded public key of the per-RP key ($RP_\text{sk-pub}$). The encoding is selected by the stored `fmt`:
+   * If the stored `fmt` is `TPM`, it is the [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure.
+   * If the stored `fmt` is `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` ([RFC 5280 Section 4.1.2.7](https://www.rfc-editor.org/rfc/rfc5280#section-4.1.2.7)).
+
+	The field is required for both formats. The IdP has to forward a trusted key digest to the RP (`dbsc_trusted_key_digest` in OIDC, `<dbsc:TrustedKey digest="...">` in SAML), and that digest is computed over the canonical JWK of $RP_\text{sk-pub}$ ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)) — a different encoding from the one hashed into `raw_stmt`. The IdP therefore needs the key itself, not just a digest of it.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
@@ -597,7 +607,8 @@ To validate the registration statement, the IdP must do the following:
 	* **`SECURE_ENCLAVE`**:
 		1. Decode `stmt` from Base64URL to obtain `raw_stmt`.
 		1. Verify that the first half of `raw_stmt` matches `hash(challenge, hash_alg(alg))`.
-		1. Verify that the second half of `raw_stmt` matches `hash(canonical_jwk(IdP_sk-pub), hash_alg(alg))`.
+		1. Decode `sub_key` from Base64URL to obtain the DER `SubjectPublicKeyInfo` of the certified key, and verify that the second half of `raw_stmt` matches `hash(sub_key_bytes, hash_alg(alg))`.
+		1. Verify that $IdP_\text{sk-pub}$ matches the public key parsed from `sub_key`.
 		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, with 32 bytes for $r$ and 32 bytes for $s$).
 		1. Verify the signature over `raw_stmt` using $IdP_\text{ak-pub}$ (converting the 64-byte raw IEEE P1363 $r \parallel s$ signature to ASN.1 DER format if required by the server's cryptographic library).
 	* **`TPM`**:
@@ -645,7 +656,10 @@ The binding statement validation is done as follows:
 		1. Verify that the first half of `raw_stmt` matches `hash(challenge, hash_alg(alg))`.
 		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, fixed 64 bytes for P-256 / ES256).
 		1. Verify the signature over `raw_stmt` using the stored $IdP_\text{ak-pub}$ associated with the user session (converting the IEEE P1363 signature to ASN.1 DER format if required by the cryptographic verification library).
-		1. Extract the second half of `raw_stmt` (the raw JWK digest bytes) and Base64URL-encode it: `jwk_thumbprint := base64url_enc(raw_stmt[digest_len:])`. This produces the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
+		1. Decode `sub_key` from Base64URL to obtain the DER `SubjectPublicKeyInfo` of $RP_\text{sk-pub}$, and verify that the second half of `raw_stmt` matches `hash(sub_key_bytes, hash_alg(alg))`. This is what ties the signed statement to the key the IdP is about to vouch for.
+		1. Parse the public key from `sub_key`, construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
+
+		> **Note:** the digest inside `raw_stmt` is *not* a JWK Thumbprint and MUST NOT be forwarded as one. It is taken over the DER `SubjectPublicKeyInfo`, whereas the RFC 7638 thumbprint is taken over the canonical JWK; the two produce different byte strings for the same key. The RP recomputes the thumbprint from the JWK it registers with DBSC, so an IdP that re-encodes the `raw_stmt` digest emits a value the RP can never match.
 	* **`TPM`**:
 		1. Decode `stmt` as `TPMS_ATTEST` and `sig` as `TPMT_SIGNATURE`.
 		1. Verify that `stmt.extraData` matches `hash(challenge, hash_alg(alg))`.
@@ -673,9 +687,9 @@ The registration statement is built as follows:
 	* The attestation key should be keyed by the (IdP’s domain, session ID) pair, where the IdP's domain is the registrable domain as stated in the [DBSC session store specification](https://w3c.github.io/webappsec-dbsc/#framework-session-store).
 1. Browser computes the attestation claim (`stmt`):
 	* For `TPM`: Browser encodes $IdP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
-	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(IdP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
+	* For `SECURE_ENCLAVE`: Browser encodes $IdP_\text{sk-pub}$ as a DER `SubjectPublicKeyInfo`, computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(sub_key_bytes, hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
 1. Browser computes the attestation signature (`sig`) using $IdP_\text{ak-priv}$. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
-1. For `TPM`, the browser includes `sub_key` as Base64URL-encoded `TPMT_PUBLIC`.
+1. Browser includes the certified public key as `sub_key`, Base64URL-encoded: `TPMT_PUBLIC` for `TPM`, DER `SubjectPublicKeyInfo` for `SECURE_ENCLAVE`.
 
 The response is then encoded in the format of a DBSC proof and sent to the server.
 
@@ -700,9 +714,9 @@ This is done as follows:
 1. Browser retrieves the attestation key keyed by (IdP domain, session ID) matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header, where the IdP domain is the registrable domain of the issuing request's host. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session or attestation key is found matching `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider. The attestation key's format `fmt` and algorithm `alg` are properties of that key; the browser uses them to build the statement but does not put them on the wire.
 1. Browser computes the attestation statement (`stmt`):
 	* For `TPM`: Browser encodes $RP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
-	* For `SECURE_ENCLAVE`: Browser computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(canonical_jwk(RP_sk-pub), hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
+	* For `SECURE_ENCLAVE`: Browser encodes $RP_\text{sk-pub}$ as a DER `SubjectPublicKeyInfo`, computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(sub_key_bytes, hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
 1. Browser computes the attestation claim's signature (`sig`) using the IdP's attestation key. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
-1. For `TPM`, the browser includes `sub_key` as Base64URL-encoded `TPMT_PUBLIC`.
+1. Browser includes the certified public key as `sub_key`, Base64URL-encoded: `TPMT_PUBLIC` for `TPM`, DER `SubjectPublicKeyInfo` for `SECURE_ENCLAVE`. Without it the IdP cannot derive the trusted key digest it has to forward to the RP.
 1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
 
 The response is also encoded in the format of a [DBSC proof](https://w3c.github.io/webappsec-dbsc/#dbsc-proof) and sent to the server.
