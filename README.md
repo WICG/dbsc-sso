@@ -505,7 +505,7 @@ RP sessions (as well as IdP sessions registered via DBSC) are standard DBSC sess
 ### Key access control and lifecycle
 
 When the Identity Provider instructs the User Agent to generate a new signing key via the `Secure-Session-GenerateKey` header, the User Agent stores the key material (or an opaque key handle / `KeyId` and $RP_\text{sk-pub}$ for LKH-managed keys) and associates it with the following metadata:
-*  **Key Digest:** The [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) JWK Thumbprint of $RP_\text{sk-pub}$ (computed by the browser for browser-managed keys, or computed and returned by the LKH for LKH-managed keys, and treated by the browser as an opaque string when matching `provider_key`).
+*  **Key Digest:** The [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) JWK Thumbprint of $RP_\text{sk-pub}$, computed with `hash_alg(alg)` of the AIK that attested the key, as in [binding statement validation](#binding-statement-validation) (computed by the browser for browser-managed keys, or computed and returned by the LKH for LKH-managed keys, and treated by the browser as an opaque string when matching `provider_key`).
 *  **Target Origin:** The [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) specified in the `target_origin` parameter, which is the RP origin.
 *  **Key Provider:** Whether the key is browser- or LKH-managed. In case of the latter, which LKH owns this key, as a device can have multiple ones.
 
