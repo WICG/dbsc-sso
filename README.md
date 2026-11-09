@@ -491,6 +491,8 @@ Before establishing the session, the RP should evaluate the following scenarios:
 
 The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header.
 
+Note: The [DBSC specification](https://w3c.github.io/webappsec-dbsc/) uses `provider_key` for federated sessions, together with `provider_url` and `provider_session_id`, and registration fails if one of the three is missing. For SSO, the RP sends `provider_key` without the other two, and it names the per-RP key that the user agent created for `Secure-Session-GenerateKey`.
+
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criteria match:
 
 * RP's origin matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
