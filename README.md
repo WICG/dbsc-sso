@@ -710,7 +710,7 @@ The binding statement validation is done as follows:
 
 1. Verify that the provided `challenge` is not expired and has not been reutilized.
 1. Load the AIK verification key ($IdP_\text{ak-pub}$), its algorithm `alg`, and its attestation format `fmt`:
-	* **Pre-provisioned AIK in an LKH:** Retrieve the pre-provisioned AIK ($IdP_\text{ak-pub}$), `alg`, and `fmt` from the IdP's enterprise device registry (or session state linked to it).
+	* **Pre-provisioned AIK in an LKH:** Retrieve the pre-provisioned AIK ($IdP_\text{ak-pub}$), `alg`, and `fmt` from the IdP's enterprise device registry (or session state linked to it). If the IdP omitted `provider_session_id`, it **MUST** use the record of the device that its own session binding authenticated on this request.
 	* **New AIK in an LKH** and **new browser-managed AIK:** Retrieve $IdP_\text{ak-pub}$, `alg`, and `fmt` stored for the user session during initial `Secure-Session-Registration`.
 
 	The binding statement does not carry `alg` or `fmt`; an implementation that reads either from the statement reintroduces a format-confusion attack across all three paths, because a genuine TPM attestation key can sign the arbitrary byte string a `SECURE_ENCLAVE` statement consists of.
