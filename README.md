@@ -496,7 +496,7 @@ Note: The [DBSC specification](https://w3c.github.io/webappsec-dbsc/) uses `prov
 
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criteria match:
 
-* RP's origin matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
+* The RP's origin, as defined in [Key access control](#key-access-control), matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
 * The `provider_key` parameter matches the underlying key digest, treated as an opaque string.
 
 Once the existing key is sent to the RP, the session registration flow happens in the same way as the standard DBSC.
@@ -518,7 +518,11 @@ This metadata enforces a strict access control policy: the User Agent **must** o
 
 1. The Relying Party identifies the key by its digest (via the `provider_key` parameter in the `Secure-Session-Registration` header).
 
-1. The Relying Party's origin matches the stored **Target Origin**.
+1. The Relying Party's origin matches the stored **Target Origin**. The Relying Party's origin is the origin of the response that carries the `Secure-Session-Registration` header, i.e. of that response's URL after any redirects.
+
+Note: The User Agent doesn't use the initiator of the request for this check. In the flow above, the initiator is the IdP when the IdP's page POSTs the authentication token to the RP, and there is no initiator when the user opens a bookmarked RP URL that redirects straight to the IdP. Checking the initiator would also let a response from another origin use the RP's key whenever a page on the RP's origin sent the request.
+
+Note: The registration endpoint doesn't have to be same-origin with the **Target Origin**. Once the key is selected, registration follows the standard DBSC rules, which don't require this either. This is intentional: only a response from the **Target Origin** can select the key, so where the RP hosts its registration endpoint is up to the RP.
 
 By relying on the key digest as the primary identifier, the User Agent allows multiple keys to exist for the same **Target Origin**. This prevents key collisions in scenarios where an Identity Provider manages multiple tenants or sessions for the same Relying Party, ensuring that the correct key is always selected based on the unique fingerprint provided by the RP.
 
@@ -619,7 +623,7 @@ As the DBSC session registration is done asynchronously, the RP needs to keep tr
 
 #### DBSC session registration
 
-In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's origin during its creation.
+In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's origin during its creation (see [Key access control](#key-access-control)).
 
 When the User Agent responds with the DBSC registration proof (in the `Secure-Session-Response` header as a JWS):
 
@@ -687,7 +691,7 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following parameters:
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** limit this key usage to the origin indicated by this parameter.
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** only use this key for a session registration started by a response from the origin indicated by this parameter (see [Key access control](#key-access-control)).
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
@@ -836,7 +840,7 @@ Once this binding statement is verified, the IdP can then issue an authenticatio
 
 #### Relying Party's session initialization
 
-The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the parameter `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's origin assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
+The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the parameter `provider_key`, which tells the User Agent which key the RP expects. If a key with the specified digest exists and its **Target Origin** matches the origin of the response carrying this header, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
 
 ## Alternatives Considered
 
