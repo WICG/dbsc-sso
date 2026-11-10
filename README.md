@@ -469,9 +469,9 @@ The following diagram shows how a new DBSC session is established between the de
 		i->>u: HTTP 302 w/ authn token (w/ key digest + DBSC support hint)
 		u->>r: GET/POST authn token (w/ key digest + DBSC support hint)
 		r->>r: Stores key digest
-		r->>u: 200 w/ authn cookie, response includes header to start session using a particular key<br>Secure-Session-Registration (provider_key=..., challenge=...)
+		r->>u: 200 w/ authn cookie, response includes header to start session using a particular key<br>Secure-Session-Registration (provider_key=trusted RP-key digest, challenge=...)
 		alt  Background
-			u->>u: Loads RPsk-pub with<br>the following digest
+			u->>u: Loads RPsk-pub matching `provider_key`
 			u->>t: Sign challenge with RPsk-priv
 			t->>u: Signature
 			u->>r: Post (RPsk-pub, signature)
