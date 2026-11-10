@@ -547,7 +547,7 @@ In case of SAML, the trusted key's digest and `digest_alg` (or the certificate f
 	<saml:Assertion>
 		<saml:Advice>
 			<dbsc:TrustedKey xmlns:dbsc="https://www.w3.org/NS/DBSC"
-				digest="nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0="
+				digest="nZgxCylNy7jXvn4-j0DykE-TDK4W41LTffxei29e_G0"
 				digest_alg="SHA-256"/>
 			<dbsc:TrustedCertificate xmlns:dbsc="https://www.w3.org/NS/DBSC"
 				fingerprint="f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b"
@@ -604,7 +604,7 @@ Corresponding custom claims are present in the OIDC Token, as follows:
 {
 	"iss": "http://idp.com",
 	...
-	"dbsc_trusted_key_digest": "nZgxCylNy7jXvn4+j0DykE+TDK4W41LTffxei29e/G0=",
+	"dbsc_trusted_key_digest": "nZgxCylNy7jXvn4-j0DykE-TDK4W41LTffxei29e_G0",
 	"dbsc_trusted_key_digest_alg": "SHA-256|384|512",
 	"dbsc_trusted_cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
 	"dbsc_trusted_cert_fingerprint_alg": "SHA-256|384|512"
