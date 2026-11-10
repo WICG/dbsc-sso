@@ -318,14 +318,15 @@ Each step in the diagram is detailed below:
 }
 ```
 
-The attestation statement format is defined as follows depending on `fmt`. IdP session registration and RP session binding use the same attestation construction; they differ in the subject key being certified ($IdP_\text{sk-pub}$ vs. $RP_\text{sk-pub}$), in the corresponding server challenge, and in which fields are carried on the wire — the registration statement below declares `alg` and `fmt`, while the [binding statement](#relying-partys-session-initialization) omits both because by then the IdP holds them as stored session state:
+The JWS is signed with $IdP_\text{ak-priv}$, so the `alg` parameter in its header is the **signature** algorithm of the attestation signing key ($IdP_\text{ak}$), e.g., `ES256` or `RS256` — not a digest algorithm. The hash algorithm used for hashing the challenge and computing the subject key digest is written `hash_alg(alg)` and is derived from it (e.g. SHA-256 for `ES256`/`RS256`, SHA-384 for `ES384`). The IdP MUST store `alg` with the attestation key; neither the attestation statement nor the binding statement repeats it.
+
+The attestation statement format is defined as follows depending on `fmt`. IdP session registration and RP session binding use the same attestation construction; they differ in the subject key being certified ($IdP_\text{sk-pub}$ vs. $RP_\text{sk-pub}$), in the corresponding server challenge, and in which fields are carried on the wire — the registration statement below declares `fmt` and takes `alg` from the header of the enclosing JWS, while the [binding statement](#relying-partys-session-initialization) carries neither because by then the IdP holds both as stored session state:
 
 For `TPM`:
 
 ```json5
 {
   "fmt": "TPM",
-  "alg": "ES256|RS256",
   "stmt": "Base64URL encoded TPMS_ATTEST structure",
   "sig": "Base64URL encoded TPMT_SIGNATURE structure",
   "sub_key": "Base64URL encoded TPMT_PUBLIC structure",
@@ -339,7 +340,6 @@ For `SECURE_ENCLAVE`:
 ```json5
 {
 	"fmt": "SECURE_ENCLAVE",
-	"alg": "ES256",
 	"stmt": "Base64URL encoded raw_stmt",
 	"sig": "Base64URL encoded signature of raw_stmt",
 	"sub_key": "Base64URL encoded SubjectPublicKeyInfo structure",
@@ -349,7 +349,6 @@ For `SECURE_ENCLAVE`:
 ```
 
 *  **fmt**: The format of the presented attestation statement (e.g., `TPM`, `SECURE_ENCLAVE`, or extensible local key helper formats such as `KEYGUARD`). The attestation format is decoupled from the host operating system. Any attestation format **MUST** ensure that the signed bytes in `stmt` cryptographically commit to both `hash(challenge, hash_alg(alg))` and `sub_key`, as both `TPM` and `SECURE_ENCLAVE` do. The IdP **MUST** store this value with the attestation key record; it is the value the [binding statement validation](#binding-statement-validation) branches on.
-*  **alg**: The **signature** algorithm of the attestation signing key ($IdP_\text{ak}$), e.g., `ES256` or `RS256` — not a digest algorithm. The hash algorithm used for hashing the challenge and computing the subject key digest is written `hash_alg(alg)` and is derived from it (e.g. SHA-256 for `ES256`/`RS256`, SHA-384 for `ES384`). The IdP MUST store `alg` with the attestation key; the binding statement does not repeat it.
 *  **stmt**: The attestation statement payload encoded in Base64URL:
    * If `fmt` is `TPM`, it is the [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) object certifying `sub_key`, generated with `qualifyingData` set to the hashed challenge `hash(challenge, hash_alg(alg))`. Hashing the challenge ensures a fixed payload size across the hardware/enclave boundary.
    * If `fmt` is `SECURE_ENCLAVE`, it is `base64url_enc(raw_stmt)` where `raw_stmt` is the concatenation of the hashed challenge and the digest of the subject key as carried in `sub_key`:
@@ -386,7 +385,7 @@ In Enterprise scenarios this hinting dance can be skipped entirely as Identity P
 
 Upon authentication request, the IdP instructs the User Agent to create a new key pair through an HTTP header (`Secure-Session-GenerateKey`). Once the new signing key is generated, the browser builds the binding statement and sends it to the IdP. Upon the binding statement and session validation, the IdP sends an authentication code back to the RP containing the signing key's digest that should be trusted.
 
-The binding statement uses the same attestation construction as the registration statement described above, with the per-RP key ($RP_\text{sk-pub}$) as the certified subject key and the binding challenge from `Secure-Session-GenerateKey` as the challenge. It differs in one respect: it does **not** carry `alg` or `fmt`.
+The binding statement uses the same attestation construction as the registration statement described above, with the per-RP key ($RP_\text{sk-pub}$) as the certified subject key and the binding challenge from `Secure-Session-GenerateKey` as the challenge. It differs in one respect: it carries neither `alg` nor `fmt`. The registration statement carries `fmt` in the attestation statement and `alg` in its JWS header; the binding statement has neither.
 
 Both values are established out-of-band relative to the binding statement:
 
@@ -659,7 +658,8 @@ To validate the registration statement, the IdP must do the following:
 
 1. Verify the challenge signature using $IdP_\text{sk-pub}$.
 1. If the IdP omitted `aik_required` (the **pre-provisioned AIK in an LKH** path), verify that $IdP_\text{ak-pub}$ matches the pre-provisioned AIK of the device that authenticated during sign-in, and that `fmt` matches the format stored in that record. If either check fails, the IdP **MUST** reject the registration statement and **MUST NOT** fall back to trusting the AIK on first use.
-1. Verify that `alg` matches the expected algorithm of $IdP_\text{ak-pub}$.
+1. Verify that the `alg` header parameter of the registration JWS matches the expected algorithm of $IdP_\text{ak-pub}$.
+1. Verify the signature of the registration JWS with $IdP_\text{ak-pub}$, taken from its `jwk` header parameter, using `alg` ([RFC 7515 Section 5.2](https://www.rfc-editor.org/rfc/rfc7515#section-5.2)). This signature covers `aud`, `jti` and `att`, so it ties the challenge signature and the attestation statement to the same attestation key.
 1. Verify the attestation statement according to `fmt`:
 	* **`SECURE_ENCLAVE`**:
 		1. Decode `stmt` from Base64URL to obtain `raw_stmt`.
