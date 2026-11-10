@@ -785,6 +785,8 @@ The User Agent only creates such a key if and only if:
 
 Otherwise, the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
+The User Agent may also skip `Secure-Session-GenerateKey` to prevent denial of service for the user, for example if the Identity Provider is requesting excessive TPM operations. In that case it ignores the header and does not reply to the Identity Provider. This matches the W3C DBSC [send a request](https://w3c.github.io/webappsec-dbsc/#algo-session-request) steps, under which the User Agent may skip a `Secure-Session-Registration` request, including one with `aik_required`, for the same reason.
+
 As the key needs to be generated while the user is signing in to the Relying Party, this operation must be done synchronously. However, as TEE key generation is generally slow (might take up to 1s to finish), this can lead to bad user experience due to considerable latency added to the sign in flow.
 
 To overcome this issue, in the **new browser-managed AIK** path, browsers are expected to pre-generate keys as soon as the IdP's session is established. In the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, LKHs can manage pre-generated key pools or leverage hardware-accelerated platform storage to minimize sign-in latency.
