@@ -522,7 +522,9 @@ This metadata enforces a strict access control policy: the User Agent **must** o
 
 By relying on the key digest as the primary identifier, the User Agent allows multiple keys to exist for the same **Target Origin**. This prevents key collisions in scenarios where an Identity Provider manages multiple tenants or sessions for the same Relying Party, ensuring that the correct key is always selected based on the unique fingerprint provided by the RP.
 
-When a bound session is terminated or when browsing data, cookies, or credentials for the IdP or Relying Party origin are cleared by the user or per browser storage clearing policies, the User Agent deletes any browser-managed key material ($IdP_\text{sk}$ and $IdP_\text{ak}$ for an IdP session, or $RP_\text{sk}$ for an RP session) and, for LKH-managed keys, emits a signal to the LKH to delete the associated key handle. Upon receiving this signal, the LKH **MUST** always delete per-RP signing keys ($RP_\text{sk}$) and IdP session signing keys ($IdP_\text{sk}$), while in the case of IdP session cleanup it is up to the LKH to decide whether to retain or remove the AIK ($IdP_\text{ak}$).
+Keys generated via `Secure-Session-GenerateKey` are single-use: each key can back at most one RP session. Once a registration that uses the key establishes a session, the User Agent **must** stop offering the key for `provider_key` lookups, and from then on the key follows the lifecycle of that session. A later `Secure-Session-Registration` that names the same `provider_key` fails as if no such key existed, and the IdP has to request a new key with `Secure-Session-GenerateKey`. If several registrations name the same key at the same time, at most one of them establishes a session. If a registration fails without establishing a session, the key stays available, so the RP can retry.
+
+When a bound session is terminated or when browsing data, cookies, or credentials for the IdP or Relying Party origin are cleared by the user or per browser storage clearing policies, the User Agent deletes any browser-managed key material ($IdP_\text{sk}$ and $IdP_\text{ak}$ for an IdP session, $RP_\text{sk}$ for an RP session, or keys generated for the Relying Party origin that no session has used yet) and, for LKH-managed keys, emits a signal to the LKH to delete the associated key handle. Upon receiving this signal, the LKH **MUST** always delete per-RP signing keys ($RP_\text{sk}$) and IdP session signing keys ($IdP_\text{sk}$), while in the case of IdP session cleanup it is up to the LKH to decide whether to retain or remove the AIK ($IdP_\text{ak}$).
 
 ## Component-level design
 
@@ -836,7 +838,7 @@ Once this binding statement is verified, the IdP can then issue an authenticatio
 
 #### Relying Party's session initialization
 
-The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the parameter `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's origin assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
+The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the parameter `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's origin assigned to that key and no other session uses it yet, the User Agent uses it to establish the new session (keys are [single-use](#key-access-control-and-lifecycle)). From this point, the DBSC session initialization happens as usual.
 
 ## Alternatives Considered
 
