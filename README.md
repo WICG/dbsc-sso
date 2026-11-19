@@ -313,8 +313,8 @@ Each step in the diagram is detailed below:
 // Payload
 {
 	"aud": "https://idp.com/reg",
-	"jti": "Base64URL encoded JWT representing the DBSC proof as specified at https://w3c.github.io/webappsec-dbsc/#format-jwt",
-	"att": "Base64URL encoded JSON object defined below."
+	"jti": "The DBSC proof as specified at https://w3c.github.io/webappsec-dbsc/#format-jwt, a JWT in compact serialization",
+	"att": { ... } // Attestation statement, a JSON object defined below.
 }
 ```
 
@@ -689,7 +689,7 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 #### DBSC Key generation header
 
-The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field whose value is an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). This header contains the following parameters:
+The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field List with a single member, an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). The Inner List carries the following parameters:
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** only use this key for a session registration started by a response from the origin indicated by this parameter (see [Key access control](#key-access-control)).
 
@@ -836,7 +836,7 @@ This is done as follows:
 		1. Browser delegates key creation and attestation to the authorized platform LKH, passing the challenge, the algorithm list from `Secure-Session-GenerateKey`, the RP target origin, and the issuing request's URL.
 		1. The platform LKH resolves the pre-provisioned AIK ($IdP_\text{ak-priv}$), format, and algorithm associated with the issuing request's URL, generates $RP_\text{sk}$, attests it using $IdP_\text{ak-priv}$, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, together with $RP_\text{sk-pub}$, its LKH-computed key digest (RFC 7638 JWK Thumbprint, stored by the browser as an opaque string to match `provider_key` later), and an opaque key handle for $RP_\text{sk}$. If the LKH cannot find a pre-provisioned AIK associated with the issuing request's URL, fails, or times out, the browser **MUST NOT** fall back to a browser-managed key, aborts the operation, and does not reply to the Identity Provider.
 
-The resulting binding statement JSON object is Base64URL-encoded and sent to the Identity Provider in the `Secure-Session-KeyBinding` header when retrying the authentication request.
+The resulting binding statement JSON object is Base64URL-encoded without padding and sent to the Identity Provider in the `Secure-Session-KeyBinding` header when retrying the authentication request. The header value is that string as is, not a Structured Field.
 
 Once this binding statement is verified, the IdP can then issue an authentication token to be redirected to the RP.
 
