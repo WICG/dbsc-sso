@@ -549,51 +549,50 @@ In case of SAML, the trusted key's digest and `digest_alg` (or the certificate f
 <samlp:Response>
 	<saml:Assertion>
 		<saml:Advice>
-			<dbsc:TrustedKey xmlns:dbsc="https://www.w3.org/NS/DBSC"
+			<dbsc:TrustedKey xmlns:dbsc="https://www.w3.org/ns/dbsc/saml"
 				digest="nZgxCylNy7jXvn4-j0DykE-TDK4W41LTffxei29e_G0"
 				digest_alg="SHA-256"/>
-			<dbsc:TrustedCertificate xmlns:dbsc="https://www.w3.org/NS/DBSC"
-				fingerprint="f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b"
+			<dbsc:TrustedCertificate xmlns:dbsc="https://www.w3.org/ns/dbsc/saml"
+				fingerprint="8-lhmp1wGlJwFGnk-D0yhHsjdOJZP2bUi3iGRwl8I0s"
 				fingerprint_alg="SHA-256"/>
 		</saml:Advice>
 	</saml:Assertion>
 </samlp:Response>
 ```
 
-The XML Schema Definition for these elements is defined as follows:
+The [XML Schema Definition](https://www.w3.org/ns/dbsc/saml/dbsc-saml.xsd) for these elements is defined as follows:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-	<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="https://www.w3.org/NS/DBSC" xmlns:dbsc="https://www.w3.org/NS/DBSC" elementFormDefault="qualified">
-		<xs:simpleType name="DigestAlgorithmType">
+	<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="https://www.w3.org/ns/dbsc/saml" xmlns:dbsc="https://www.w3.org/ns/dbsc/saml" elementFormDefault="qualified" version="1.0">
+		<xs:simpleType name="HashingAlgorithmType">
 			<xs:restriction base="xs:string">
 				<xs:enumeration value="SHA-256"/>
 				<xs:enumeration value="SHA-384"/>
 				<xs:enumeration value="SHA-512"/>
 			</xs:restriction>
 		</xs:simpleType>
-		<xs:simpleType name="DigestType">
-			<xs:union memberTypes="xs:base64Binary xs:string"/>
-		</xs:simpleType>
-		<xs:simpleType name="FingerprintType">
-			<xs:union memberTypes="xs:hexBinary xs:string"/>
+		<xs:simpleType name="Base64URL">
+			<xs:restriction base="xs:string">
+				<xs:pattern value="[A-Za-z0-9\-_]*(=(=)?)?" />
+			</xs:restriction>
 		</xs:simpleType>
 	<xs:element name="TrustedKey">
 		<xs:complexType>
-			<xs:attribute name="digest" type="dbsc:DigestType" use="required">
+			<xs:attribute name="digest" type="dbsc:Base64URL" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
-			<xs:attribute name="digest_alg" type="dbsc:DigestAlgorithmType" use="required">
+			<xs:attribute name="digest_alg" type="dbsc:HashingAlgorithmType" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
 		</xs:complexType>
 	</xs:element>
 	<xs:element name="TrustedCertificate">
 		<xs:complexType>
-			<xs:attribute name="fingerprint" type="dbsc:FingerprintType" use="required">
+			<xs:attribute name="fingerprint" type="dbsc:Base64URL" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
-			<xs:attribute name="fingerprint_alg" type="dbsc:DigestAlgorithmType" use="required">
+			<xs:attribute name="fingerprint_alg" type="dbsc:HashingAlgorithmType" use="required">
 			<!-- documentation omitted for brevity -->
 			</xs:attribute>
 		</xs:complexType>
@@ -609,7 +608,7 @@ Corresponding custom claims are present in the OIDC Token, as follows:
 	...
 	"dbsc_trusted_key_digest": "nZgxCylNy7jXvn4-j0DykE-TDK4W41LTffxei29e_G0",
 	"dbsc_trusted_key_digest_alg": "SHA-256|384|512",
-	"dbsc_trusted_cert_fingerprint": "f3e9619a9d701a52701469e4f83d32847b2374e2593f66d48b788647097c234b",
+	"dbsc_trusted_cert_fingerprint": "8-lhmp1wGlJwFGnk-D0yhHsjdOJZP2bUi3iGRwl8I0s",
 	"dbsc_trusted_cert_fingerprint_alg": "SHA-256|384|512"
 }
 ```
