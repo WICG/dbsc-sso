@@ -91,8 +91,8 @@ This document is inspired by the [DBSC(E) Explainer](https://github.com/w3c/weba
 
 Depending on how the AIK ($IdP_\text{ak}$) is provisioned and managed, this explainer defines three paths:
 
-1. **Pre-provisioned AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy uses a **pre-provisioned AIK** created at clean-room device provisioning time and registered in the IdP's enterprise device registry (`aik_required` omitted in `Secure-Session-Registration`, or `Secure-Session-Registration` skipped altogether when the IdP maintains a non-DBSC bound session).
-2. **New AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy generates a **new AIK** during IdP session initialization, which the IdP trusts on first use (TOFU) (`aik_required=?1` in `Secure-Session-Registration`).
+1. **Pre-provisioned AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy uses a **pre-provisioned AIK** created at clean-room device provisioning time and registered in the IdP's enterprise device registry (used whether `Secure-Session-Registration` is sent with or without `aik_required`, or skipped altogether when the IdP maintains a non-DBSC bound session).
+2. **New AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy generates a **new AIK** during IdP session initialization, which the IdP trusts on first use (TOFU) when `aik_required=?1` is set in `Secure-Session-Registration`.
 3. **New browser-managed AIK:** No LKH is mapped to the IdP origin, and the browser generates a **new browser-managed AIK** in the TEE during IdP session initialization, which the IdP trusts on first use (TOFU) (`aik_required=?1` in `Secure-Session-Registration`).
 
 ## Relationship to DBSC(E) and Convergence
@@ -237,11 +237,18 @@ Initializing the session with an Identity Provider has some extra steps in compa
 
 Session initialization follows one of the three paths defined in [Terminology](#terminology):
 
-1. **Pre-provisioned AIK in an LKH:** The device authenticates through an existing device trust relationship (such as an IdP-specific device binding artifact, mTLS client certificate, or platform broker registration). If the IdP establishes a DBSC session for itself, it sends `Secure-Session-Registration` and **omits the `aik_required` parameter**, and the LKH uses its pre-provisioned AIK to attest the new IdP signing key in a `dbsc+aik` registration statement. Alternatively, if the IdP maintains a non-DBSC bound session, establishing an IdP DBSC session is **optional**: the IdP may skip `Secure-Session-Registration` altogether and later omit `provider_session_id` in `Secure-Session-GenerateKey`, relying on the authorized LKH to resolve the pre-provisioned AIK from the issuing request's URL when attesting per-RP signing keys.
-2. **New AIK in an LKH:** The IdP includes `aik_required=?1` in `Secure-Session-Registration`, and the LKH generates a new AIK and produces the `dbsc+aik` registration statement. Because the IdP has no prior record of this AIK, it trusts the key on first use (TOFU), as in the **new browser-managed AIK** path.
+1. **Pre-provisioned AIK in an LKH:** The device authenticates through an existing device trust relationship (such as an IdP-specific device binding artifact, mTLS client certificate, or platform broker registration). If the IdP establishes a DBSC session for itself, it sends `Secure-Session-Registration` (omitting `aik_required` if it only accepts a pre-provisioned AIK, or including `aik_required=?1` if it also accepts TOFU), and the LKH uses its pre-provisioned AIK to attest the new IdP signing key in a `dbsc+aik` registration statement. Alternatively, if the IdP maintains a non-DBSC bound session, establishing an IdP DBSC session is **optional**: the IdP may skip `Secure-Session-Registration` altogether and later omit `provider_session_id` in `Secure-Session-GenerateKey`, relying on the authorized LKH to resolve the pre-provisioned AIK from the issuing request's URL when attesting per-RP signing keys.
+2. **New AIK in an LKH:** The IdP includes `aik_required=?1` in `Secure-Session-Registration` (indicating it accepts a TOFU AIK), and an LKH generates a new AIK and produces the `dbsc+aik` registration statement. Because the IdP has no prior record of this AIK, it trusts the key on first use (TOFU), as in the **new browser-managed AIK** path.
 3. **New browser-managed AIK:** The IdP includes `aik_required=?1` in `Secure-Session-Registration`, and the browser generates a new browser-managed AIK and produces the `dbsc+aik` registration statement.
 
 An IdP without device trust **MUST** include `aik_required=?1` in `Secure-Session-Registration`. Whether an LKH is mapped to the IdP origin then decides between the **new AIK in an LKH** and **new browser-managed AIK** paths.
+
+When the IdP initiates DBSC session registration via `Secure-Session-Registration`, the combination of LKH presence and `aik_required` determines the resulting AIK behavior:
+
+| LKH status | `aik_required=?1` | `aik_required` omitted |
+| --- | --- | --- |
+| **LKH mapped to IdP origin** | Browser delegates to LKH; LKH uses its pre-provisioned AIK (if present) or creates a new AIK, and IdP accepts either (pre-provisioned or TOFU). | Browser delegates to LKH; LKH uses its pre-provisioned AIK (if it creates a new AIK instead, the IdP may reject it). |
+| **No LKH mapped to IdP origin** | Browser generates a new browser-managed AIK (**new browser-managed AIK** path); IdP accepts it via TOFU. | Standard DBSC registration without an AIK. |
 
 The following diagram shows how a bound session is established between the User Agent and the IdP:
 
@@ -256,11 +263,11 @@ sequenceDiagram
 	
 	alt Pre-provisioned AIK in an LKH / new AIK in an LKH
 		note over u, i: Sign in ceremony
-		u->>i: Authenticate device<br>(IdP-specific device binding artifact, mTLS client certificate, platform broker registration)
+		u->>i: Authenticate (device auth for pre-provisioned AIK, optional for new AIK:<br>IdP-specific device binding artifact, mTLS client certificate, platform broker registration)
   		i->>u: 200 w/ authn cookie (with Secure-Session-Registration (aik_required optional, challenge=...) if establishing a DBSC session)
   		opt IdP establishes a DBSC session (required for new AIK in an LKH, optional for non-DBSC bound sessions with pre-provisioned AIK)
 			note over i, l: Background DBSC registration w/ LKH
-			u->>l: Compute IdP signing key, attestation statement/sig<br>(using pre-provisioned AIK or new AIK if aik_required is set), and challenge signature
+			u->>l: Compute IdP signing key, attestation statement/sig<br>(using pre-provisioned AIK or creating a new AIK), and challenge signature
 			l->>u: Return (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
 			u->>i: Post (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
 			note over i: Validate signature and attestation<br>Verify or store IDPak-pub and store IDPsk-pub
@@ -283,11 +290,11 @@ Identity Provider session binding flow.
 Each step in the diagram is detailed below:
 
 **Sign in ceremony:**
-* **Pre-provisioned AIK in an LKH:** The User Agent authenticates the device using the selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, if the IdP uses DBSC for its own session, it responds with `Secure-Session-Registration`, omitting `aik_required`. If the IdP maintains a non-DBSC bound session, it may skip `Secure-Session-Registration` and omit the remaining IdP DBSC registration steps below.
+* **Pre-provisioned AIK in an LKH:** The User Agent authenticates the device using the selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, if the IdP uses DBSC for its own session, it responds with `Secure-Session-Registration`. If the IdP maintains a non-DBSC bound session, it may skip `Secure-Session-Registration` and omit the remaining IdP DBSC registration steps below.
 * **New AIK in an LKH** and **new browser-managed AIK:** The sign-in ceremony proceeds normally (or with optional device authentication). Upon successful authentication, the IdP includes `aik_required=?1` in the `Secure-Session-Registration` header.
 
 **Key generation and attestation:** When `Secure-Session-Registration` is sent, this step is performed asynchronously in the background:
-* In the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, the browser delegates **all** cryptographic operations for the session to the LKH so that browser-managed and LKH-managed keys are never mixed on the same session: the **LKH** creates the session signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$, retains $IdP_\text{sk-priv}$ (returning an opaque key handle to the browser), signs the challenge sent by the server, and attests $IdP_\text{sk-pub}$ using its pre-provisioned AIK or new AIK. If the LKH fails, times out, or has no pre-provisioned AIK when `aik_required` is omitted, the browser **MUST NOT** fall back to a browser-managed key, and the registration fails.
+* In the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, the browser delegates **all** cryptographic operations for the session to the LKH so that browser-managed and LKH-managed keys are never mixed on the same session: the **LKH** uses its pre-provisioned AIK or creates a new one, creates the session signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$, retains $IdP_\text{sk-priv}$ (returning an opaque key handle to the browser), signs the challenge sent by the server, and attests $IdP_\text{sk-pub}$ using that AIK. If the LKH fails or times out, the browser **MUST NOT** fall back to a browser-managed key, and the registration fails.
 
 * In the **new browser-managed AIK** path, the browser creates both the signing key and the new browser-managed AIK in the TEE:
 	1. A new signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ is created. $IdP_\text{sk-pub}$ is used to register the IdP DBSC session.
@@ -495,7 +502,7 @@ Note: The [DBSC specification](https://w3c.github.io/webappsec-dbsc/) uses `prov
 
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criteria match:
 
-* The RP's origin, as defined in [Key access control](#key-access-control), matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
+* The RP's origin, as defined in [Key access control](#key-access-control-and-lifecycle), matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
 * The `provider_key` parameter matches the underlying key digest, treated as an opaque string.
 
 Once the existing key is sent to the RP, the session registration flow happens in the same way as the standard DBSC.
@@ -537,9 +544,9 @@ Besides the [standard DBSC implementation](https://developer.chrome.com/docs/web
 
 #### SAML Assertion and OIDC Tokens
 
-The Identity Provider shares the trusted public key's digest (for TPM-bound sessions) or the certificate fingerprint (for mTLS-bound sessions) and the algorithm utilized (SHA-256|384|512) with the Relying Party via either SAML Assertion or OIDC Tokens, depending on which SSO protocol the RP is using.
+The Identity Provider shares the trusted public key's digest (for DBSC key-bound sessions) or the certificate fingerprint (for mTLS-bound sessions) and the algorithm utilized (SHA-256|384|512) with the Relying Party via either SAML Assertion or OIDC Tokens, depending on which SSO protocol the RP is using.
 
-While DBSC primarily focuses on TPM-bound keys, it also supports certificate-based binding (e.g., via mTLS) to accommodate platforms or scenarios where hardware-backed keys might not be available or as an additional layer of security. In such cases, the IdP can share the client certificate's fingerprint instead of, or in addition to, the public key digest.
+While DBSC primarily focuses on securely-stored- or LKH-bound keys, it also supports certificate-based binding (e.g., via mTLS) to accommodate platforms or scenarios where hardware-backed keys might not be available or as an additional layer of security. In such cases, the IdP can share the client certificate's fingerprint instead of, or in addition to, the public key digest.
 
 Note: Sharing certificate fingerprints can pose privacy concerns as they may serve as a persistent identifier across different Relying Parties. While this is generally acceptable in enterprise scenarios where device tracking and security auditing are required, it should be carefully considered for consumer use cases.
 
@@ -622,7 +629,7 @@ As the DBSC session registration is done asynchronously, the RP needs to keep tr
 
 #### DBSC session registration
 
-In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's origin during its creation (see [Key access control](#key-access-control)).
+In the RP's DBSC session registration, the parameter `provider_key` must be sent in the `Secure-Session-Registration` header, which tells the browser what key the RP expects. To avoid any *guessing* capabilities for malicious RPs, the User Agent only sends the key if it was assigned to the RP's origin during its creation (see [Key access control](#key-access-control-and-lifecycle)).
 
 When the User Agent responds with the DBSC registration proof (in the `Secure-Session-Response` header as a JWS):
 
@@ -638,9 +645,9 @@ If both the JWK thumbprint verification and the signature verification succeed (
 It is expected that the IdP maintains a bound session with the User Agent — either via DBSC (required in the **new AIK in an LKH** and **new browser-managed AIK** paths, and supported in the **pre-provisioned AIK in an LKH** path) or, in the **pre-provisioned AIK in an LKH** path, as a non-DBSC bound session backed by a pre-provisioned AIK (in which case the IdP DBSC session registration subsections below may be skipped). Starting from this premise, the Identity Provider should implement the following:
 
 #### DBSC registration header
-In the **new AIK in an LKH** and **new browser-managed AIK** paths, besides the standard DBSC headers, the `Secure-Session-Registration` header includes the `aik_required` parameter. In the **pre-provisioned AIK in an LKH** path, if the IdP establishes a DBSC session, it omits `aik_required` (or skips `Secure-Session-Registration` altogether when maintaining a non-DBSC bound session). Whenever `Secure-Session-Registration` is sent, the IdP MUST include the `challenge` parameter, because the client needs it to build the `dbsc+aik` registration statement. If `challenge` is missing, and either `aik_required` is set or an LKH is mapped to the IdP origin, the user agent ignores the `Secure-Session-Registration` header.
+Besides the standard DBSC headers, the `Secure-Session-Registration` header can include the `aik_required` parameter. In the **new AIK in an LKH** and **new browser-managed AIK** paths, the IdP includes `aik_required=?1` so it will accept a newly created AIK on first use (TOFU). In the **pre-provisioned AIK in an LKH** path, if the IdP establishes a DBSC session, it omits `aik_required` when it only accepts a pre-provisioned AIK, or includes `aik_required=?1` when it also accepts TOFU (while still accepting a pre-provisioned AIK if the LKH has one); when maintaining a non-DBSC bound session, it skips `Secure-Session-Registration` altogether. Whenever `Secure-Session-Registration` is sent, the IdP MUST include the `challenge` parameter, because the client needs it to build the `dbsc+aik` registration statement. If `challenge` is missing, and either `aik_required` is set or an LKH is mapped to the IdP origin, the user agent ignores the `Secure-Session-Registration` header.
 
-`aik_required` is a [boolean](https://datatracker.ietf.org/doc/html/rfc9651#name-booleans) parameter (`aik_required=?1`) indicating whether the client (LKH or browser) must create a new AIK during session registration.
+`aik_required` is a [boolean](https://datatracker.ietf.org/doc/html/rfc9651#name-booleans) parameter. `aik_required=?1` indicates that the IdP accepts a newly created AIK on first use (TOFU) as well as a pre-provisioned one. If the IdP omits `aik_required`, it rejects a newly created AIK. Without an LKH, the browser generates a browser-managed AIK if and only if `aik_required=?1` is set. With an LKH, the browser always delegates to it regardless of `aik_required`, and the LKH uses its pre-provisioned AIK if it has one, otherwise creates a new one.
 
 #### Registration statement validation
 
@@ -657,7 +664,7 @@ The registration statement (`typ: "dbsc+aik"`) is the payload sent to the IdP wh
 To validate the registration statement, the IdP must do the following:
 
 1. Verify the challenge signature using $IdP_\text{sk-pub}$.
-1. If the IdP omitted `aik_required` (the **pre-provisioned AIK in an LKH** path), verify that $IdP_\text{ak-pub}$ matches the pre-provisioned AIK of the device that authenticated during sign-in, and that `fmt` matches the format stored in that record. If either check fails, the IdP **MUST** reject the registration statement and **MUST NOT** fall back to trusting the AIK on first use.
+1. If the IdP omitted `aik_required` (i.e., it only accepts a pre-provisioned AIK), verify that $IdP_\text{ak-pub}$ matches the pre-provisioned AIK of the device that authenticated during sign-in, and that `fmt` matches the format stored in that record; if either check fails, the IdP **MUST** reject the registration statement and **MUST NOT** fall back to trusting the AIK on first use. If `aik_required=?1` was set, verify $IdP_\text{ak-pub}$ and `fmt` against the authenticated device's pre-provisioned AIK record if one exists, or otherwise accept and store $IdP_\text{ak-pub}$ on first use (TOFU).
 1. Verify that the `alg` header parameter of the registration JWS matches the expected algorithm of $IdP_\text{ak-pub}$.
 1. Verify the signature of the registration JWS with $IdP_\text{ak-pub}$, taken from its `jwk` header parameter, using `alg` ([RFC 7515 Section 5.2](https://www.rfc-editor.org/rfc/rfc7515#section-5.2)). This signature covers `aud`, `jti` and `att`, so it ties the challenge signature and the attestation statement to the same attestation key.
 1. Verify the attestation statement according to `fmt`:
@@ -691,7 +698,7 @@ As stated in the high-level design section, the per-RP key is 1P data from the R
 
 The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Agent how to generate a key for a given Relying Party. It is a Structured Field List with a single member, an [Inner List](https://datatracker.ietf.org/doc/html/rfc9651#name-inner-lists) of [Tokens](https://datatracker.ietf.org/doc/html/rfc9651#name-tokens) representing the acceptable cryptographic algorithms for the new key (e.g., `(ES256 RS256)`). The Inner List carries the following parameters:
 
-* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** only use this key for a session registration started by a response from the origin indicated by this parameter (see [Key access control](#key-access-control)).
+* A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter called `target_origin`, which is the serialized secure origin of the RP performing the sign in operation (e.g., `https://relyingparty.com`). The User Agent **must** only use this key for a session registration started by a response from the origin indicated by this parameter (see [Key access control](#key-access-control-and-lifecycle)).
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
@@ -753,9 +760,9 @@ There are a few capabilities that the browser must provide in order to support D
 
 #### Identity Provider registration statement
 
-When signing in to an IdP that initiates DBSC session registration via `Secure-Session-Registration`, in the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, the User Agent delegates all registration cryptographic operations to the LKH so that browser-managed and LKH-managed keys are never mixed: the LKH generates the session key, signs the challenge, and attests the session key to produce a `dbsc+aik` registration statement using its pre-provisioned AIK or new AIK. If the LKH fails, times out, or has no pre-provisioned AIK when `aik_required` is omitted, the User Agent **MUST NOT** fall back to a browser-managed key, and the registration fails. (In the **pre-provisioned AIK in an LKH** path, if the IdP maintains a non-DBSC bound session and omits `Secure-Session-Registration`, no registration statement is generated.)
+When signing in to an IdP that initiates DBSC session registration via `Secure-Session-Registration`, in the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, the User Agent delegates all registration cryptographic operations to the LKH so that browser-managed and LKH-managed keys are never mixed: uses its pre-provisioned AIK if it has one, otherwise creates a new one, generates the session key, signs the challenge, and attests the session key to produce a `dbsc+aik` registration statement. If the LKH fails or times out, the User Agent **MUST NOT** fall back to a browser-managed key, and the registration fails. (In the **pre-provisioned AIK in an LKH** path, if the IdP maintains a non-DBSC bound session and omits `Secure-Session-Registration`, no registration statement is generated.)
 
-In the **new browser-managed AIK** path, the User Agent provides the session key, the challenge signature, and a new browser-managed AIK along with its attestation statement and signature. Whenever an IdP DBSC session is registered, the User Agent records the key provider (whether the session is browser-managed or managed by a specific LKH) with the IdP session and continues using that provider for the lifetime of the session.
+When no LKH is mapped to the IdP origin and `aik_required=?1` is set (the **new browser-managed AIK** path), the User Agent provides the session key, the challenge signature, and a new browser-managed AIK along with its attestation statement and signature; if `aik_required` is omitted, it performs standard DBSC registration without an AIK. Whenever an IdP DBSC session is registered, the User Agent records the key provider (whether the session is browser-managed or managed by a specific LKH) with the IdP session and continues using that provider for the lifetime of the session.
 
 In the **new browser-managed AIK** path, the registration statement is built as follows:
 
