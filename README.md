@@ -294,14 +294,13 @@ Each step in the diagram is detailed below:
 	1. The challenge sent by the server is signed with $IdP_\text{sk-priv}$.
 	1. A new browser-managed AIK $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is created and used to create an attestation claim for $IdP_\text{sk}$.
 
-**Registration statement:** Across all three paths (whenever an IdP DBSC session is registered), a new variant of the [DBSC proof](https://w3c.github.io/webappsec-dbsc/#format-jwt) takes place to accommodate both subject and attestation keys and cryptographically tie $IdP_\text{sk-pub}$ to $IdP_\text{ak-pub}$. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
+**Registration statement:** Across all three paths (whenever an IdP DBSC session is registered), a new variant of the [DBSC proof](https://w3c.github.io/webappsec-dbsc/#format-jwt) takes place to accommodate both subject and attestation keys and cryptographically tie $IdP_\text{sk-pub}$ to $IdP_\text{ak-pub}$. It is a [JWS](https://www.rfc-editor.org/rfc/rfc7515) with `typ: "dbsc+aik"`, signed by the attestation key, whose payload is a JSON object; the DBSC registration JWT, signed by the session key, is carried in the `jti` claim:
 
 ```json5
 // Header
 {
 	"alg": "ES256",
 	"typ": "dbsc+aik",
-	"cty": "jwt", // Indicates nested JWT
 	"jwk": { // Holds the attestation public key material.
 		"kty": "EC",
 		"crv": "P-256",
